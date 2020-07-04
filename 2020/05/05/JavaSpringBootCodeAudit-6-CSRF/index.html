@@ -79,12 +79,12 @@
 
 <h2 id="代码审计过程"><a href="#代码审计过程" class="headerlink" title="代码审计过程"></a>代码审计过程</h2><p>案例项目中不存在Referer校验和CSRF token，所以网站肯定存在多处CSRF。除了修改密码处需要的原密码攻击者无法知晓外，其他功能点均存在CSRF。</p>
 <p>我们以添加购物车功能为例，请求内容为下，没有任何token值</p>
-<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/add-to-shop-cart.png" alt="image-20200504200617041" style="zoom:43%;">
+<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/add-to-shop-cart.png" alt="add-to-shop-cart" style="zoom:43%;">
 
 
 
 <p>由于是json格式的请求，不能直接使用burp Generate CSRF PoC，因为burp生成的PoC无法伪造Content-Type。burp生成的CSRF PoC请求内容如下，可以看到<code>Content-Type: text/plain</code>，并且post数据多出一个等号。</p>
-<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/csrf-request-add-shop-cart.png" alt="image-20200504201229995" style="zoom: 43%;">
+<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/csrf-request-add-shop-cart.png" alt="csrf-request-add-shop-cart" style="zoom: 43%;">
 
 <p>使用fetch跨域请求会先发送一个options请求，fetch设置no-cors模式又无法更改Content-Type。还有一种利用方法是使用flash+307跳转，这种方法只适用于老旧浏览器。</p>
 <p>不过我们可以利用之前审计出来的漏洞组合起来利用。</p>
@@ -127,7 +127,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/" data-id="ckc7fhcp300085ajcbtxbhmsv" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/" data-id="ckc7ne03p0008avjce5d83krn" class="article-share-link">
                                             分享
                                         </a> -->
                                         

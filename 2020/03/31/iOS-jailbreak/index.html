@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    iOS 12.4越狱+配置过程记录 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-iOS-jailbreak" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      iOS 12.4越狱+配置过程记录
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/03/31/iOS-jailbreak/" class="article-date">
+  <time datetime="2020-03-30T16:00:00.000Z" itemprop="datePublished">2020-03-31</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <h1 id="越狱"><a href="#越狱" class="headerlink" title="越狱"></a>越狱</h1><p>在<a href="https://checkra.in/#release" target="_blank" rel="noopener">https://checkra.in/#release</a> 中下载，其中能越狱的设备有iPhone 5s – iPhone X, iOS 12.3 and up</p>
+<p>我的设备是iPhone SE(A9)，iOS版本12.4</p>
+<a id="more"></a>
+
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-latest-release.png" alt="checkra1n-latest-release" style="zoom: 67%;">
+
+<p>下载完成后，将手机通过数据线连接Mac，运行checkra1n，点击start</p>
+<img src="/2020/03/31/iOS-jailbreak/run-checkra1n.png" alt="run-checkra1n" style="zoom:43%;">
+
+<p>一直点击next，直到如下画面，根据以下提示按键</p>
+<ol>
+<li>点击Start</li>
+<li>同时按住关机键和home键</li>
+<li>松开关机键，持续按住home键</li>
+</ol>
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-start-jailbreak.png" alt="checkra1n-start-jailbreak" style="zoom: 43%;">
+
+<p>之后等待一会，程序安装完成之后，iPhone会重启。</p>
+<p>重启完成后输入密码，进行系统，点开checkra1n应用，安装Cydia。</p>
+<p>（安装Cydia最好翻墙，翻墙很快下完，不翻墙下载失败）</p>
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-jailbreak-success.png" alt="checkra1n-jailbreak-success" style="zoom:33%;">
+
+<p>整个越狱流程就结束了，非常简单快捷。</p>
+<h1 id="iProxy"><a href="#iProxy" class="headerlink" title="iProxy"></a>iProxy</h1><p>安装完Cydia之后可以来安装iProxy。iProxy的用处是通过USB进行SSH连接手机，虽然Wi-Fi就能通过SSH连接，但是稳定性和传输速度比不上USB。</p>
+<p>在Mac上执行：<code>brew install libusbmuxd</code>，安装完成之后将手机的端口映射到其他端口上：<code>iproxy 2222 22</code>,在令一个终端页面输入<code>ssh root@localhost -p 2222</code>开始连接，密码是alpine。</p>
+<p>⚠️ 我连接SSH时出现问题，报错内容如下</p>
+<img src="/2020/03/31/iOS-jailbreak/iproxy-error.png" alt="iproxy-error" style="zoom:50%;">
+
+<p>我的解决办法就是重新安装openssh，重装后就能正常连接</p>
+<img src="/2020/03/31/iOS-jailbreak/iproxy-success.png" alt="iproxy-success" style="zoom:50%;">
+
+
+
+<h1 id="Frida-and-Objection"><a href="#Frida-and-Objection" class="headerlink" title="Frida and Objection"></a>Frida and Objection</h1><p>Frida安装教程：<a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
+<p>在Mac执行：<code>pip3 install frida-tools</code></p>
+<p>需要在iPhone上执行的操作：打开Cydia -&gt; 点击底部栏“软件源” -&gt; 点击右上角“编辑” -&gt; 点击左上角“添加”，然后输入<a href="https://build.frida.re" target="_blank" rel="noopener">https://build.frida.re</a></p>
+<p>完成之后，点击新增的源找到“build.frida.re”点击进去，里面有三个可选项，分别是“Frida for 32-bit devices”、“Frida for A12+ devices”、“Frida for pre-A12 devices”，32-bit是iPhone 5s和iPad Air（不含）以下的设备，A12+是iPhone X（不含）以上的设备。</p>
+<p>因为我的设备是iPhone SE，芯片型号是A9，所以选择“Frida for pre-A12 devices”</p>
+<p>安装完Firda之后，继续安装Objection。</p>
+<p>在Mac上执行<code>pip3 install objection</code>，安装完成之后可以运行<code>objection --gadget &quot;com.apple.AppStore&quot; explore</code>来测试一下</p>
+<img src="/2020/03/31/iOS-jailbreak/objection-install.png" alt="objection-install" style="zoom:50%;">
+
+
+
+<p>⚠️ 如果安装的是“Frida for A12+ devices”，使用Frida时需要开启Xcode来挂载硬盘镜像。</p>
+<img src="/2020/03/31/iOS-jailbreak/objection-error.png" alt="objection-error" style="zoom:50%;">
+
+
+
+<h1 id="证书配置和安装SSL-Kill-Switch-2"><a href="#证书配置和安装SSL-Kill-Switch-2" class="headerlink" title="证书配置和安装SSL Kill Switch 2"></a>证书配置和安装SSL Kill Switch 2</h1><p>证书配置非常简单，设置好burp代理，访问<a href="http://burp" target="_blank" rel="noopener">http://burp</a> ，安装证书。</p>
+<p>安装证书之后在 设置 -&gt; 通用 -&gt; 描述文件 -&gt; PortSwigger CA，点击安装。</p>
+<p>再到 通用 -&gt; 关于本机 -&gt; 证书信任设置，选上PortSwigger即可。</p>
+<img src="/2020/03/31/iOS-jailbreak/certificate-trust.png" alt="certificate-trust" style="zoom:33%;">
+
+
+
+<p>重点是安装SSL Killing，app测试时很多应用都会强制使用certificate pinning导致无法抓包，安装<a href="https://github.com/nabla-c0d3/ssl-kill-switch2" target="_blank" rel="noopener">SSL Kill Switch 2</a>可帮助我们绕过certificate pinning。</p>
+<ol>
+<li>安装前先确定Cydia中安装了以下packages：<code>wget</code>、<code>Debian Packager</code>、<code>Cydia Substrate</code>、<code>PreferenceLoader</code></li>
+</ol>
+<p>⚠️ 找不到PreferenceLoader，可添加源：<a href="https://rpetri.ch/repo" target="_blank" rel="noopener">https://rpetri.ch/repo</a> ，再安装。</p>
+<ol start="2">
+<li>在<a href="https://github.com/nabla-c0d3/ssl-kill-switch2/releases" target="_blank" rel="noopener">SSL Kill Switch 2 release</a>中复制最新的<code>.deb</code>链接</li>
+<li>使用SSH连接iPhone，运行<code>wget &lt;RELEASE URL FROM STEP 2&gt;</code> -&gt; <code>dpkg -i &lt;DOWNLOAD PACKAGE NAME&gt;</code> -&gt;killall -HUP SpringBoard，确定安装成功后<code>rm &lt;DOWNLOAD PACKAGE NAME&gt;</code></li>
+<li>打开iPhone，在设置 -&gt; SSL Kill Switch 2（设置的最下方） -&gt; 勾选Disable Certificate Validation</li>
+</ol>
+<img src="/2020/03/31/iOS-jailbreak/SSL-Kill-Switch.png" alt="SSL-Kill-Switch" style="zoom:33%;">
+
+
+
+<h1 id="绕过越狱检测"><a href="#绕过越狱检测" class="headerlink" title="绕过越狱检测"></a>绕过越狱检测</h1><h3 id="Liberty"><a href="#Liberty" class="headerlink" title="Liberty"></a>Liberty</h3><p>iPhone上打开Cydia，添加源<code>https://ryleyangus.com/repo/</code>，之后搜索<code>Liberty Lite</code>，安装即可。</p>
+<p>安装完成之后在设置中开启Liberty，再点击Block Jailbreak Detection中选择需要绕过越狱检测的iOS应用。</p>
+<img src="/2020/03/31/iOS-jailbreak/liberty.png" alt="liberty" style="zoom:33%;">
+
+<p>如果在某些APP中不生效，也可以尝试其他插件，比如xCon。</p>
+<h3 id="xCon"><a href="#xCon" class="headerlink" title="xCon"></a>xCon</h3><p>在Cydia中添加源<a href="http://xcon.crazy.net/" target="_blank" rel="noopener">http://xcon.crazy.net</a>，进入添加的源中选择xCon下载安装即可。</p>
+<p>xCon会绕过以下越狱检测方法（1）根据是否存在特定的越狱文件，及特定文件的权限是否发生变化来判断设备是否越狱（2）根据沙箱完整性检测设备是否越狱（3）根据文件系统的分区是否发生变化来检测设备是否越狱（4）根据是否安装ssh来判断设备是否越狱</p>
+<h1 id="导出APP文件"><a href="#导出APP文件" class="headerlink" title="导出APP文件"></a>导出APP文件</h1><p>导出APP是一个非常有用的功能，导出之后的文件没有壳，拖到IDA中直接反编译就行，非常方便，谁用谁知道。</p>
+<ol>
+<li>在Mac中输入<code>git clone https://github.com/AloneMonkey/frida-ios-dump.git &amp;&amp; cd frida-ios-dump</code></li>
+<li><code>sudo pip3 install -r requirements.txt --upgrade</code></li>
+<li>在另一个终端输入<code>iproxy 2222 22</code></li>
+<li><code>python3 dump.py -l</code>列举iPhone上所有的应用，<code>python3 ./dump.py &lt;APP DISPLAY NAME OR BUNDLE IDENTIFIER&gt;</code>导出APP文件。</li>
+</ol>
+<h1 id="安装Apple-File-Conduit-2"><a href="#安装Apple-File-Conduit-2" class="headerlink" title="安装Apple File Conduit 2"></a>安装Apple File Conduit 2</h1><p>iOS9以上无法通过第三方软件读取应用文件，安装Apple File Confuit2可绕过该限制。</p>
+<p>在Cydia中搜索“Apple File Confuit2”即可</p>
+<p>APP文件目录：    </p>
+<p>a) iOS7及之前：/Device/private/var/mobile/Application/UUID/XXXXX.app/</p>
+<p>b) iOS8：/var/mobile/Containers/Bundle/Application/UUID/</p>
+<p>c) iOS9/10/12：/var/containers/Bundle/Application/UUID/</p>
+<h1 id="添加mem-check"><a href="#添加mem-check" class="headerlink" title="添加mem-check"></a>添加mem-check</h1><p>已经安装好OpenSSH，可以使用sftp将mem-check文件上传到iPhone中。</p>
+<p>在本机输入<code>sftp -P 2222 root@localhost</code>，再输入密码<code>alpine</code>进入sftp模式</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">~ sftp -P 2222 root@localhost</span><br><span class="line">root@localhost<span class="string">'s password: alpine</span></span><br><span class="line"><span class="string">Connected to localhost.</span></span><br></pre></td></tr></table></figure>
+
+<p>进入sftp模式后，使用put将文件上传至iPhone中，上传文件路径为本机的路径</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">sftp&gt; put /Tmp/mem-check</span><br><span class="line">Uploading /Tmp/mem-check to /private/var/root/mem-check</span><br><span class="line">/Tmp/mem-check                                       100%  132KB   8.2MB/s   00:00</span><br><span class="line">sftp&gt;</span><br></pre></td></tr></table></figure>
+
+<p>然后给mem-check加上执行权限，</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">chmod +x mem-check</span><br></pre></td></tr></table></figure>
+
+<p>先用ps命令得到APP的PID，再利用mem-check –p PID –s STRING对APP内存进行搜索</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">~ root<span class="comment"># ps A | grep XXX</span></span><br><span class="line">~ root<span class="comment"># mem-check -p 1234 -s password</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="iKeyMonitor安装"><a href="#iKeyMonitor安装" class="headerlink" title="iKeyMonitor安装"></a>iKeyMonitor安装</h1><p>iKeyMonitor安装直接在Cydia中搜索iKeyMonitor即可</p>
+<p>iKeymonitor只有三天试用时间，使用十分钟邮箱（<a href="http://mail.bccto.me/" target="_blank" rel="noopener">http://mail.bccto.me/</a> ）获取一个随机的邮箱，然后在官网进行注册（ <a href="https://ikeymonitor.com/" target="_blank" rel="noopener">https://ikeymonitor.com/</a> ）</p>
+<p>官网选择sign up -&gt; iPhone/iPad -&gt; The iPhone/iPad can be Jailbroken, and I can get it in my hand and jailbreak it -&gt; 填写User ID 和 Email</p>
+<p>然后会收到一封邮件，点击查看可得到许可证号，使用许可证登录即可</p>
+<p><img src="/2020/03/31/iOS-jailbreak/iKeyMonitor.png" alt="iKeyMonitor"></p>
+<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><p><a href="https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13" target="_blank" rel="noopener">https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13</a></p>
+<p><a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
+<p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/03/31/iOS-jailbreak/" data-id="ckc7ne05n000eavjcekvrg7bz" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            使用Packet Filter将Mac热点中的流量转发到Burp
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2019/12/26/Tomcat8.5+_400_hide/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Tomcat 8.5版本以上隐藏400报错信息</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

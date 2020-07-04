@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    理解Java反序列化-ysoserial URLDNS |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-Understand-Java-Deserialization-Ysoserial-URLDNS" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      理解Java反序列化-ysoserial URLDNS
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/" class="article-date">
+  <time datetime="2019-12-05T16:00:00.000Z" itemprop="datePublished">2019-12-06</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>目前网上绝大部分 Java 反序列化漏洞文章都以 <code>CommonsCollections</code> 这条利用链作为教程，这条利用链其实特别复杂，用 <code>CommonsCollections</code> 作为 Java 反序列化入门教程未免太过硬核。</p>
+<p>想要利用「不安全的反序列化」漏洞，就需要看被反序列化的类的 <code>readObject()</code> 是怎么写的。通常 Java 反序列化类中的 <code>readObject()</code> 方法很少会被重写，这也就是为什么「不安全的反序列化」利用链一般都只出现在通用 jar 包中。大部分反序列化的利用链较为复杂，甚至还需要多种 Java 特性来配合，比如反射、动态代理、JNDI注入等等，光了解这些特性就要花上不少时间。</p>
+<p>这里通过 URLDNS 作为利用链来学习 Java 反序列化就会简单很多。</p>
+<a id="more"></a>
+
+<h1 id="一、利用"><a href="#一、利用" class="headerlink" title="一、利用"></a>一、利用</h1><p>使用 WebGoat 不安全的反序列化题目作为复现环境。</p>
+<p><code>URLDNS</code> 是 ysoserial 工具的一个模块，作用是发起一个 DNS 请求，该模块方便在于利用广，仅靠 JDK 默认的 <code>java.util.Hashmap</code> 和 <code>java.net.URL</code> 即可完成反序列化的过程。并且利用链较短，有助于理解 Java 反序列化，利用链太长容易迷茫在利用链中的技术细节中。</p>
+<p>ysoserial 中 URLDNS 模块的使用方法如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">java -jar ysoserial-0.0.6-SNAPSHOT-all.jar URLDNS &quot;https:&#x2F;&#x2F;dns.example.com&quot;</span><br></pre></td></tr></table></figure>
+
+<p>Burp Deserialization Scanner Exploiting 利用如下：</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/URLDNS-exploit.png" alt="URLDNS-exploit"></p>
+<p>Burp Collaborator 得到如下返回，就这样非常简单的完成了一次反序列化的利用，利用反序列化发起了一次DNS请求。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/burp-collaborator-result.png" alt="burp-collaborator-result"></p>
+<h1 id="二、调试前准备"><a href="#二、调试前准备" class="headerlink" title="二、调试前准备"></a>二、调试前准备</h1><p>ysoserial 项目地址： <a href="https://github.com/frohoff/ysoserial/" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/</a> ，git clone 或直接下载下来导入到编译器中，我这里使用的编译器是 IntelliJ IDEA。</p>
+<p>ysoserial 项目结构如下，在 payloads 目录中可以看到 ysoserial 中所有的可利用类。</p>
+<img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-payload.png" alt="ysoserial-payload" style="zoom:40%;">
+
+<p>ysoserial 项目中存在 pom.xml 文件，表明这是一个由 maven 构建的项目。IntelliJ IDEA 会自动根据其中的配置下载依赖。</p>
+<blockquote>
+<p>POM（Project Object Model，即项目对象模型）是 Maven 工程的基本工作单元，是一个 XML 文件，包含了 Maven 用于构建项目的项目信息及各种配置信息，比如项目依赖，项目开发人员，版本，插件，组织信息、项目授权、项目的 url 等等。我们通过 POM 文件来完成对 Maven 项目的管理，构建等操作。</p>
+</blockquote>
+<p>如果 maven 依赖有问题，可以手工点击菜单里的 <code>Files - Project Structure</code>，然后配置 Libraries。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-project-structure.png" alt="ysoserial-project-structure"></p>
+<p>先输入需导入的包名，等待搜索完成，再选择相应的版本下载即可。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/download-library-from-maven-repository.png" alt="download-library-from-maven-repository"></p>
+<p>pom.xml 文件中 <code>maven-assembly-plugin</code> 就是一个用来打包项目的插件，可以把依赖、类文件什么的都打包在一起。其中存在 <code>&lt;mainClass&gt;</code>，表明 <code>ysoserial.GeneratePayload</code> 就是主类。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/maven-mainClass.png" alt="maven-mainClass"></p>
+<p>根据 pom.xml 中的 <code>&lt;mainClass&gt;</code> 找到找到 <code>GeneratePayload</code> 类，<code>main</code> 函数前有个绿色的小箭头，点击这个小箭头可选择从此 Debug（ 因为一个项目中可能存在多个 <code>main</code> 函数，所以通过这种方法快速找到运行时的主类）。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-GeneratePayload.png" alt="debug-GeneratePayload"></p>
+<p>此时就可以在我们需要的地方下断点，在 IntelliJ IDEA 中点击左侧栏即可设下断点，下图红色圆圈就是断点，调试过程中，程序运行到断点处就会停下。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/URLDNS-hashmap.png" alt="URLDNS-hashmap"></p>
+<p>如果此时直接开始调试只能在 console 中看到输出 usage 页面，ysoserial 需要添加参数来运行指定的 payloads 模块。</p>
+<p>所以需要修改默认参数。修改路径/方法如下。打开 IDEA 右上角的 <code>Edit Configurations...</code></p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Edit-Configurations.png" alt="Edit-Configurations"></p>
+<p>然后在 Program arguments 中输入参数 <code>URLDNS &quot;&lt;http://xxx.com&gt;&quot;</code></p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/set-program-arguments.png" alt="set-program-arguments"></p>
+<p>以上方法主要是调试整个程序，调试其他项目的思想大致如此。</p>
+<p><em>ysoserial 可以不用单独调试，这里主要是为了记录方法/思想，以后遇到其他项目时就知道该怎么去调试了。</em></p>
+<h1 id="三、反序列化过程调试"><a href="#三、反序列化过程调试" class="headerlink" title="三、反序列化过程调试"></a>三、反序列化过程调试</h1><h2 id="3-1-介绍"><a href="#3-1-介绍" class="headerlink" title="3.1 介绍"></a>3.1 介绍</h2><p>ysoserial 有那么多 payloads，调试整个程序是非常冗余的。ysoserial 提供了单独调试 payloads 的方法，每个 payload 的 <code>main</code> 方法中都有调用 <code>PayloadRunner</code> ，可以 Debug payload 的 <code>main</code> 函数来进行单独调试。不设置运行参数时会默认使用 <code>calc.exe</code> 作为参数来执行。</p>
+<p>并且 PayloadRunner 会完成序列化到反序列化全部过程，就是从 payload 的生成到 <code>readObject()</code> 的读取。这样无需额外找反序列化环境来测试，方便快捷～</p>
+<p>在 URLDNS 中点击 <code>main</code> 函数左侧的箭头进行 Debug</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-URLDNS-main.png" alt="debug-URLDNS-main"></p>
+<p>单独调试 payload 同样需要添加参数，但无需指定模块，仅设置 DNSlog地址<code>&quot;http://xxx.com&quot;</code> 即可</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/set-program-arguments-URLDNS.png" alt="set-program-arguments-URLDNS"></p>
+<p>URLDNS 中的 <code>getObject()</code> 方法中新建了一个 <code>HashMap</code> 类，并在 <code>HashMap</code> 中放置了一个 <code>java.net.URL</code> 类，url 是我们传入的参数。相比于其他 ysoserial 中的 payload，URLDNS 非常简单明了。</p>
+<p>从中我们可以得知 URLDNS 序列化的是 <code>HashMap</code> 类，在之后反序列化的过程中，就能明确需要追踪的是 <code>HashMap -&gt; readObject()</code></p>
+<h2 id="3-2-反序列化过程"><a href="#3-2-反序列化过程" class="headerlink" title="3.2 反序列化过程"></a>3.2 反序列化过程</h2><p>URLDNS 中 <code>main</code> 函数中用到 <code>PayloadRunner.run（URLDNS.class, args)</code></p>
+<p><code>PayloadRunner</code> 在这里不是重点，就不单独介绍。<code>PayloadRunner</code> 代码分析可参考：<a href="http://1codelife.com/2017/09/17/Java-deserial-learning1/" target="_blank" rel="noopener">http://1codelife.com/2017/09/17/Java-deserial-learning1/</a></p>
+<p><code>final Object objAfter = Deserializer.deserialize(serialized)</code> 表示调用反序列化过程，如下图断点处</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-deserialize.png" alt="debug-deserialize"></p>
+<p><code>Deserializer</code> 类的 <code>deserialize</code> 方法处调用 <code>objIn.readObject()</code>，正式进入反序列化操作</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-objectinputstream-readobject.png" alt="debug-objectinputstream-readobject"></p>
+<p>在反序列化过程前有一些概念需要理解：</p>
+<ol>
+<li>反序列化漏洞应该叫做「不安全的反序列化」漏洞，正常的反序列化是不存在危害的；</li>
+<li>反序列化类必需实现 <code>Serializable</code> 接口，并重写 <code>readObject()</code> 方法；</li>
+<li>未重写 <code>readObject()</code> 不存在「不安全的反序列化」漏洞；</li>
+<li>即使重写 <code>readObject()</code> 也不一定就存在「不安全的反序列化」漏洞，还需要看重写的内容，是否可构造「有效利用链」；</li>
+<li>序列化对象被反序列化时会调用序列化对象的<code>readObject()</code>方法。</li>
+</ol>
+<p>第 5 点可能不太好理解，就以 URLDNS 来举例，上图断点处是 <code>objIn.readObject()</code> ，<code>objIn</code>是<code>ObjectInputStream</code>对象，可以理解为执行的是 <code>ObjectInputStream.readObject()</code> 。此处 <code>readObject()</code> 的作用是读取传入的序列化对象。</p>
+<p>此时我们传入一个 <code>HashMap</code> 的序列化对象，<code>ObjectInputStream.readObjec()</code> 会读取该序列化对象，进行反序列化操作，反序列化过程中会执行序列化对象的 <code>readObject()</code> 方法，也就是执行 <code>HashMap.readObject()</code> 方法。</p>
+<blockquote>
+<p>两个 <code>readObject()</code> 都会执行，但两者的作用不同。利用链开始的 <code>readObject()</code> 是后者。</p>
+</blockquote>
+<p>想要利用「不安全的反序列化」漏洞，就需要看序列化对象的 <code>readObject()</code> 是怎么写的。通常 Java 序列化类中的 <code>readObject()</code> 方法很少会被重写，这也就是为什么「不安全的反序列化」一般都只出现在通用 jar 包中。且每一个反序列化的利用链都非常复杂，甚至还需要多种 Java 特性来配合，比如反射、动态代理、JNDI 注入等等，光了解这些特性就要花上不少时间。</p>
+<p>从 <code>ObjectInputStream.readObject()</code> 到 <code>HashMap.readObject()</code> 过程中会经过多个 <code>java.io</code> 和 <code>sun.reflect</code> 类中方法的调用 ，见下图调用栈，<strong>这是 Java 反序列化中最需要理解的一步</strong>。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/readobject-stack.png" alt="readobject-stack"></p>
+<p>从此开始反序列化利用链的分析，<code>HashMap -&gt; readObject()</code> 代码如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">readObject</span><span class="params">(java.io.ObjectInputStream s)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException, ClassNotFoundException </span>&#123;</span><br><span class="line">        <span class="comment">// Read in the threshold (ignored), loadfactor, and any hidden stuff</span></span><br><span class="line">        s.defaultReadObject();</span><br><span class="line">        reinitialize();</span><br><span class="line">        <span class="keyword">if</span> (loadFactor &lt;= <span class="number">0</span> || Float.isNaN(loadFactor))</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InvalidObjectException(<span class="string">"Illegal load factor: "</span> +</span><br><span class="line">                                             loadFactor);</span><br><span class="line">        s.readInt();                <span class="comment">// Read and ignore number of buckets</span></span><br><span class="line">        <span class="keyword">int</span> mappings = s.readInt(); <span class="comment">// Read number of mappings (size)</span></span><br><span class="line">        <span class="keyword">if</span> (mappings &lt; <span class="number">0</span>)</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InvalidObjectException(<span class="string">"Illegal mappings count: "</span> +</span><br><span class="line">                                             mappings);</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (mappings &gt; <span class="number">0</span>) &#123; <span class="comment">// (if zero, use defaults)</span></span><br><span class="line">            <span class="comment">// Size the table using given load factor only if within</span></span><br><span class="line">            <span class="comment">// range of 0.25...4.0</span></span><br><span class="line">            <span class="keyword">float</span> lf = Math.min(Math.max(<span class="number">0.25f</span>, loadFactor), <span class="number">4.0f</span>);</span><br><span class="line">            <span class="keyword">float</span> fc = (<span class="keyword">float</span>)mappings / lf + <span class="number">1.0f</span>;</span><br><span class="line">            <span class="keyword">int</span> cap = ((fc &lt; DEFAULT_INITIAL_CAPACITY) ?</span><br><span class="line">                       DEFAULT_INITIAL_CAPACITY :</span><br><span class="line">                       (fc &gt;= MAXIMUM_CAPACITY) ?</span><br><span class="line">                       MAXIMUM_CAPACITY :</span><br><span class="line">                       tableSizeFor((<span class="keyword">int</span>)fc));</span><br><span class="line">            <span class="keyword">float</span> ft = (<span class="keyword">float</span>)cap * lf;</span><br><span class="line">            threshold = ((cap &lt; MAXIMUM_CAPACITY &amp;&amp; ft &lt; MAXIMUM_CAPACITY) ?</span><br><span class="line">                         (<span class="keyword">int</span>)ft : Integer.MAX_VALUE);</span><br><span class="line"></span><br><span class="line">            <span class="comment">// Check Map.Entry[].class since it's the nearest public type to</span></span><br><span class="line">            <span class="comment">// what we're actually creating.</span></span><br><span class="line">            SharedSecrets.getJavaOISAccess().checkArray(s, Map.Entry[]<span class="class">.<span class="keyword">class</span>, <span class="title">cap</span>)</span>;</span><br><span class="line">            <span class="meta">@SuppressWarnings</span>(&#123;<span class="string">"rawtypes"</span>,<span class="string">"unchecked"</span>&#125;)</span><br><span class="line">            Node&lt;K,V&gt;[] tab = (Node&lt;K,V&gt;[])<span class="keyword">new</span> Node[cap];</span><br><span class="line">            table = tab;</span><br><span class="line"></span><br><span class="line">            <span class="comment">// Read the keys and values, and put the mappings in the HashMap</span></span><br><span class="line">            <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; mappings; i++) &#123;</span><br><span class="line">                <span class="meta">@SuppressWarnings</span>(<span class="string">"unchecked"</span>)</span><br><span class="line">                    K key = (K) s.readObject();</span><br><span class="line">                <span class="meta">@SuppressWarnings</span>(<span class="string">"unchecked"</span>)</span><br><span class="line">                    V value = (V) s.readObject();</span><br><span class="line">                putVal(hash(key), key, value, <span class="keyword">false</span>, <span class="keyword">false</span>);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p>咋一看 <code>readObject()</code> 方法并不会有特别明显的异常，其实重点在最后一行 <code>putVal(hash(key), key, value, false, false)</code>的 <code>hash()</code> 方法，计算 key 的 hash 值（在这下断点会方便后续快速调试）</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-putVal.png" alt="debug-putVal"></p>
+<blockquote>
+<p>使用 IntelliJ IDEA 调试在这里会碰到问题，可能调试不会步进 hash 方法，而是直接步进 putVal 方法中，具体原因可看最下方附录。</p>
+</blockquote>
+<p>步进 <code>hash</code> 方法，看到其中调用了 key 的 <code>hashCode</code> 方法</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-hashCode.png" alt="debug-hashCode"></p>
+<p>继续步进 <code>hashCode</code>，因为 key 是一个 <code>java.net.URL</code> 对象，就会跳到<code>URL -&gt; hashCode</code> 方法</p>
+<p>可以看到这里会判断<code>hashCode != -1</code>，这也是为什么构造 payload 时会将 hashCode 赋值为 -1</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
+<p>此处 <code>handler</code> 是 <code>URLStreamHandler</code> 的一个对象，由 <code>transient URLStreamHandler handler</code> 创建。继续步进 <code>hashCode</code> 方法。</p>
+<p>在 359 行看到 <code>getHostAddress</code>，步进该方法</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-getHostAddress.png" alt="debug-getHostAddress"></p>
+<p>这⾥ <code>InetAddress.getByName(host)</code> 的作⽤是根据主机名，获取其 IP 地址，在⽹络上就是⼀次 DNS 查询。</p>
+<p>其实到这⾥反序列化的调试就可以结束了，后续是具体发起 DNS 查询的步骤。</p>
+<p>我们也可再继续步进</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-InetAddress-getByName.png" alt="debug-InetAddress-getByName"></p>
+<p>中间略过几步…</p>
+<p>直接到关键步骤 <code>nameService.lookupAllHostAddr(host)</code>，正是从此处发起 DNS 查询。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-InetAddress.getAllByName.png" alt="debug-InetAddress.getAllByName"></p>
+<p>下图是从 <code>HashMap -&gt; readObject()</code> 开始到 DNS 请求执行的调用栈，这是 ysoserial payloads 中最简单的调用栈。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-URLDNS-stack.png" alt="debug-URLDNS-stack"></p>
+<p>整个 URLDNS 的利用链可以简单概括成：</p>
+<ol>
+<li>HashMap -&gt; readObject()</li>
+<li>HashMap -&gt; hash()</li>
+<li>URL -&gt; hashCode()</li>
+<li>URLStreamHandler -&gt; hashCode()</li>
+<li>URLStreamHandler -&gt; getHostAddress()</li>
+<li>InetAddress -&gt; getByName()</li>
+<li>…</li>
+</ol>
+<h1 id="四、构造利用链"><a href="#四、构造利用链" class="headerlink" title="四、构造利用链"></a>四、构造利用链</h1><p>知道了反序列化的过程，就能据此构造利用链，利用链也叫做 “Gadget chains”。</p>
+<p>要构造这个 Gadget ，只需要初始化⼀个 <code>java.net.URL</code> 对象，作为 key 放在 <code>java.util.HashMap</code> 中；然后，设置这个 URL 对象的 hashCode 为初始值 -1 ，这样反序列化时将会重新计算其 hashCode，才能触发到后⾯的 DNS 请求，否则不会调⽤ <code>URL -&gt; hashCode()</code> 。</p>
+<blockquote>
+<p>这里 hashCode 必须设置为 -1</p>
+</blockquote>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
+<p>另外，URLDNS 为了防⽌在⽣成 Payload 的时候也执⾏了 URL 请求和 DNS 查询，所以重写了⼀ 个 <code>SilentURLStreamHandler</code> 类，但这不是必须的。</p>
+<p>URLDNS 中的注释也存在相应的说明，可在 ysoserial 项目代码<a href="https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java</a> 中查看。</p>
+<h1 id="五、对反序列化的理解"><a href="#五、对反序列化的理解" class="headerlink" title="五、对反序列化的理解"></a>五、对反序列化的理解</h1><p>Java 反序列化漏洞核心就是执行被反序列化类的 <code>readObject()</code> 方法，<code>readObject()</code> 是整个利用链的起点。纵观整个反序列化的过程，最难的是利用链的构造。</p>
+<p>一个系统存在反序列化漏洞需要满足以下条件：</p>
+<ol>
+<li>需要可接收用户数据的<code>ObjectInputStream -&gt; readObject()</code></li>
+<li>存在有效利用链的 lib/jar 包（一般不太可能根据程序自身的反序列化类构造一个利用链，除非白盒测试）</li>
+</ol>
+<p>正常的反序列化类是没有危害的。只有当「被反序列化的类」重写了 <code>readObject()</code> 方法，且重写方法中存在「利用链」才属于不安全的。因为在「被反序列化的类」被反序列化时会自动执行 <code>readObject()</code> 方法，所以首先需要的是重写 <code>readObject()</code>，其次是重写的方法中存在「有效的利用链」。这里「利用链」有的是通过反射，有的是通过动态代理，有的是通过 JNDI 注入等等方法才导致最后的 RCE 。</p>
+<p>「被反序列化的类」一般都是 lib/jar 包中的类。正常情况下，普通系统的开发在正常情况下很少会重写 <code>readObject()</code> 且存在「有效的利用链」（普通的开发都是功能型开发，很少用到反序列化，由于 Json 的普及使得极少情况下才需要手写序列化的类<del>（结果Jackson和fastjson产生了大量的反序列化漏洞）</del>）。目前曝出来的大部分反序列化利用的都是 lib/jar 包中的类，这些类为了通用性就会写出一些特殊的 <code>readObject()</code> 方法，这也导致一些花式攻击手法的产生。</p>
+<h1 id="六、代码审计"><a href="#六、代码审计" class="headerlink" title="六、代码审计"></a>六、代码审计</h1><p>搞清楚 Java 反序列化，以后代码审计就着重注意 <code>ObjectInputStream -&gt; readObject()</code> 方法是否用户可控。</p>
+<p>若用户可控，就再去找 lib 目录中是否存在 ysoserial payload 中已有的 jar 包，有的话就能直接认为该处存在反序列化漏洞。或者查看 Java 版本，若低于 <code>Jdk7u21</code>也能造成 RCE。</p>
+<p>即使以上都没有，该处也算是一个风险点，说不定以后会有新的 Gadget 被发现。</p>
+<h1 id="七、附录"><a href="#七、附录" class="headerlink" title="七、附录"></a>七、附录</h1><h2 id="报错相关"><a href="#报错相关" class="headerlink" title="报错相关"></a>报错相关</h2><p>URLDNS 参数需加上相应协议，如 <code>http://</code>、<code>https://</code> ，若不加具体协议，会产生如下错误：</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-URLDNS-error.png" alt="ysoserial-URLDNS-error"></p>
+<p>亲测 ysoserial 不能在 Java 11 中使用，我的 Java 环境为 <code>java 1.8.0_221</code>。Java 1.8 还是稳～</p>
+<h2 id="IntelliJ-IDEA-会默认步过-JDK-中的方法"><a href="#IntelliJ-IDEA-会默认步过-JDK-中的方法" class="headerlink" title="IntelliJ IDEA 会默认步过 JDK 中的方法"></a>IntelliJ IDEA 会默认步过 JDK 中的方法</h2><h3 id="方法1-使用-Force-Step-Into"><a href="#方法1-使用-Force-Step-Into" class="headerlink" title="方法1  使用 Force Step Into"></a>方法1  使用 Force Step Into</h3><p>可以使用 Force Step Into 强制步进，简单粗暴。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/force-step-into.png" alt="force-step-into"></p>
+<h3 id="方法2-取消-Do-not-step-into-the-classes"><a href="#方法2-取消-Do-not-step-into-the-classes" class="headerlink" title="方法2  取消 Do not step into the classes"></a>方法2  取消 Do not step into the classes</h3><p>IntelliJ IDEA 默认在调试选项中关闭了对 JDK 源码的调试支持，需要在设置中取消勾选</p>
+<p>Mac 中设置路径为 <code>IntelliJ IDEA → Preferences...</code> ，快捷键 <code>⌘ Cmd + ,</code></p>
+<p>Windows 中设置路径为 <code>File → Setting</code></p>
+<p>打开设置界面后在 Build, Execution, Deployment → Debugger → Stepping → Do not step into the classes → 取消勾选 <code>java.*</code> 和 <code>javax.*</code></p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Do-step-into-the-classes.png" alt="Do-step-into-the-classes"></p>
+<p>设置之后调试时不会自动跳过 <code>java.*</code> 和 <code>javax.*</code> 类。</p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/" data-id="ckc7ne05n000davjc3446bfbt" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2019/12/26/Tomcat8.5+_400_hide/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Tomcat 8.5版本以上隐藏400报错信息
+          
+        </div>
+      </a>
+    
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

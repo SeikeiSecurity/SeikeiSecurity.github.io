@@ -79,10 +79,10 @@
 <a id="more"></a>
 
 <p>在<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">项目</a>的第一个issue中看到已经有人提出<a href="https://github.com/newbee-ltd/newbee-mall/issues/1" target="_blank" rel="noopener">SQL注入漏洞</a>，并给出poc： <code>http://127.0.0.1:28089/search?goodsCategoryId=&amp;keyword=\%&#39;)) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,CONCAT(0x7176627871,IFNULL(CAST(CURRENT_USER() AS CHAR),0x20),0x7162786b71),NULL,NULL#&amp;orderBy=default</code>   </p>
-<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/SQLi-issue.png" alt="image-20200120171936521" style="zoom:50%;">
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/SQLi-issue.png" alt="SQLi-issue" style="zoom:50%;">
 
 <p>随后作者对该SQL注入点进行修复，<a href="https://github.com/newbee-ltd/newbee-mall/commit/dac570107a67044ac754c9a20cd6ef305ed56b0e#comments" target="_blank" rel="noopener">commit</a>中将<code>like</code>模糊查询处的<code>${keyword}</code>改为<code>#{keyword}</code>。</p>
-<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/fix-sqli-ommit.png" alt="image-20200120171518893" style="zoom:40%;">
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/fix-sqli-ommit.png" alt="fix-sqli-ommit" style="zoom:40%;">
 
 
 
@@ -203,7 +203,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" data-id="ckc7fhcnt00055ajc4ry724ck" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" data-id="ckc7ne03j0005avjc4tth8gb1" class="article-share-link">
                                             分享
                                         </a> -->
                                         

@@ -112,7 +112,7 @@
 <p>这回不管用什么路径都无法绕过登录限制，因为请求对应的session中没有<code>MALL_USER_SESSION_KEY</code>的值。</p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/try-to-bypass-newbeemalllogininterceptor.png" alt="NewBeeMallLoginInterceptor"></p>
 <p>我们再回到拦截器的配置中来，看路径配置是否可能存在配置不当的情况，漏掉部分需要登录限制</p>
-<img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/newbeemalllogininterceprot-config.png" alt="image-20200504150230909" style="zoom: 43%;">
+<img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/newbeemalllogininterceprot-config.png" alt="newbeemalllogininterceprot-config" style="zoom: 43%;">
 
 <p>在Controller中一番搜寻，发现在<code>/src/main/java/ltd/newbee/mall/controller/mall/PersonalController.java:48</code>中，其中只有<code>/personal</code>和<code>/personal/updateInfo</code>设置了规则，而<code>/personal/addresses</code>未被配置拦截路径。</p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/personal/addresses"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">addressesPage</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"mall/addresses"</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
@@ -187,7 +187,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" data-id="ckc7fhcnw00075ajc9xam98r4" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" data-id="ckc7ne03r0009avjcfmqugg9a" class="article-share-link">
                                             分享
                                         </a> -->
                                         
