@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Java SpringBoot框架代码审计三 - SQL注入 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-JavaSpringBootCodeAudit-3-SQL-Injection" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Java SpringBoot框架代码审计三 - SQL注入
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" class="article-date">
+  <time datetime="2020-04-30T16:00:00.000Z" itemprop="datePublished">2020-05-01</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
+<p><a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">案例项目</a>使用Mybatis作为数据持久层框架，进行数据库的各种操作。MyBatis的主要思想是将程序中的大量SQL语句剥离出来，配置在配置文件当中，实现SQL的灵活配置。配置文件常存放在<code>src/main/resources/mapper</code>中，配置文件命名为<code>ExampleMapper.xml</code></p>
+<a id="more"></a>
+
+<p>在<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">项目</a>的第一个issue中看到已经有人提出<a href="https://github.com/newbee-ltd/newbee-mall/issues/1" target="_blank" rel="noopener">SQL注入漏洞</a>，并给出poc： <code>http://127.0.0.1:28089/search?goodsCategoryId=&amp;keyword=\%&#39;)) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,CONCAT(0x7176627871,IFNULL(CAST(CURRENT_USER() AS CHAR),0x20),0x7162786b71),NULL,NULL#&amp;orderBy=default</code>   </p>
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/SQLi-issue.png" alt="image-20200120171936521" style="zoom:50%;">
+
+<p>随后作者对该SQL注入点进行修复，<a href="https://github.com/newbee-ltd/newbee-mall/commit/dac570107a67044ac754c9a20cd6ef305ed56b0e#comments" target="_blank" rel="noopener">commit</a>中将<code>like</code>模糊查询处的<code>${keyword}</code>改为<code>#{keyword}</code>。</p>
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/fix-sqli-ommit.png" alt="image-20200120171518893" style="zoom:40%;">
+
+
+
+<h2 id="SQL注入产生原理"><a href="#SQL注入产生原理" class="headerlink" title="SQL注入产生原理"></a>SQL注入产生原理</h2><p>为什么将<code>${}</code>改为<code>#{}</code>就能防止SQL注入呢？</p>
+<p>MyBatis<a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">官方文档</a>中有如下叙述:</p>
+<blockquote>
+<p><code>#{}</code>告诉 MyBatis 创建一个预编译语句（PreparedStatement）参数，在 JDBC 中，这样的一个参数在 SQL 中会由一个“?”来标识，并被传递到一个新的预处理语句中，就像这样：</p>
+</blockquote>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 近似的 JDBC 代码，非 MyBatis 代码...</span></span><br><span class="line">String selectPerson = <span class="string">"SELECT * FROM PERSON WHERE ID=?"</span>;</span><br><span class="line">PreparedStatement ps = conn.prepareStatement(selectPerson);</span><br><span class="line">ps.setInt(<span class="number">1</span>,id);</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/prepareStatement.png" alt="prepareStatement"></p>
+<p><code>${}</code> 仅仅是纯粹的 string 替换，在动态 SQL 解析阶段将会进行变量替换，类似于直接替换字符串，会导致SQL注入产生。</p>
+<p>官方也给出警示：</p>
+<blockquote>
+<p>用这种方式接受用户的输入，并将其用于语句中的参数是不安全的，会导致潜在的 SQL 注入攻击，<strong>因此要么不允许用户输入这些字段，要么自行转义并检验</strong>。</p>
+</blockquote>
+<p>开发的原则是能使用<code>#{}</code>的地方，一定使用<code>#{}</code>。但是SQL语句中存在无法使用<code>#{}</code>的场景，因为使用<code>#{}</code>会在原本的字段加上引号<code>&#39;&#39;</code>，导致SQL语句报错。不能使用<code>#{}</code>的场景我们需要特别注意，此处极易产生SQL注入。</p>
+<p>不能使用<code>#{}</code>的场景有：</p>
+<ol>
+<li>表名/字段名</li>
+<li>order by/group by</li>
+<li>like模糊查询</li>
+<li>in</li>
+</ol>
+<p>以表名为例，使用<code>#{}</code>替换字符串时会带上单引号 <code>&#39;&#39;</code>，这会导致 sql 语法错误，例如：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="comment">#&#123;tableName&#125; where name = #&#123;name&#125;;</span></span><br></pre></td></tr></table></figure>
+
+<p>预编译之后的sql 变为：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> ? <span class="keyword">where</span> <span class="keyword">name</span> = ?;</span><br></pre></td></tr></table></figure>
+
+<p>假设我们传入的参数为 tableName = “user” , name = “username”，那么在占位符进行变量替换后，sql 语句变为</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="string">'user'</span> <span class="keyword">where</span> <span class="keyword">name</span>=<span class="string">'username'</span>;</span><br></pre></td></tr></table></figure>
+
+<p>上述 sql 语句是存在语法错误的，表名不能加单引号 <code>&#39;&#39;</code>（不过反引号 ``是可以的）。</p>
+<p>不过表名一般不会通过用户传入，即使是用户传入，由于Mybatis的查询机制，并不会产生SQL注入。</p>
+<p>避免使用<code>${}</code>的方法</p>
+<ol>
+<li>表名/字段名</li>
+</ol>
+<p>尽量直接使用表名和字段名，如果有动态查询的需求时，将表名和字段名限定在指定字符。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">tableName = tableName.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
+
+
+
+<ol start="2">
+<li>order by/group by </li>
+</ol>
+<p>order by后</p>
+<p>修复方法是推荐开发在Java层面做映射，设置一个字段/表名数组，仅允许用户传入索引值。这样保证传入的字段或者表名都在白名单里面。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">query.append(<span class="string">" ORDER BY "</span>);    </span><br><span class="line">String[] orderByFields = orderByComparator.getOrderByFields();</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; orderByFields.length; i++) &#123;</span><br><span class="line">query.append(<span class="string">"appSetPersonal."</span>);</span><br><span class="line">query.append(orderByFields[i]);</span><br><span class="line">     </span><br><span class="line"><span class="keyword">if</span> (i + <span class="number">1</span> &lt; orderByFields.length) &#123;</span><br><span class="line">    <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">        query.append(<span class="string">" ASC, "</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        query.append(<span class="string">" DESC, "</span>);</span><br><span class="line">    &#125;</span><br><span class="line">        </span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">    query.append(<span class="string">" ASC"</span>);</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    query.append(<span class="string">" DESC"</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>或者将传入的值限定在指定字符，如</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">orderByField = orderByField.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li>like模糊查询</li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">mysql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="keyword">CONCAT</span>(<span class="string">'%'</span>,<span class="comment">#&#123;param&#125;,'%')</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">oracle</span>: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>||<span class="comment">#&#123;param&#125;||'%'</span></span><br><span class="line"></span><br><span class="line">mssql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>+<span class="comment">#&#123;param&#125;+'%'</span></span><br></pre></td></tr></table></figure>
+
+<ol start="4">
+<li>in</li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> <span class="keyword">id</span> <span class="keyword">in</span> </span><br><span class="line">&lt;foreach collection=<span class="string">"ids"</span> item=<span class="string">"item"</span> <span class="keyword">open</span>=<span class="string">"("</span> separator=<span class="string">","</span> <span class="keyword">close</span>=<span class="string">")"</span>&gt;</span><br><span class="line"><span class="comment">#&#123;item&#125;</span></span><br><span class="line">&lt;/foreach&gt;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="SQL注入代码审计"><a href="#SQL注入代码审计" class="headerlink" title="SQL注入代码审计"></a>SQL注入代码审计</h2><p>知道了SQL注入产生的原理，那么找漏洞就非常简单了。SQL注入是代码审计中最好找的漏洞之一，只需分析SQL语句发现拼接，再逆向追踪拼接参数用户是否可控。不用被代码的多层调用所干扰。</p>
+<p>SQL注入审计过程：</p>
+<ol>
+<li>在Dao层（Mybaits在Mapper中，Mybatis也有注解写SQL的方式，但很少用），查看SQL语句是否使用拼接，关注<code>${}</code></li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;select id&#x3D;&quot;getUID&quot; parameterType&#x3D;&quot;string&quot; reusltType&#x3D;&quot;User&quot;&gt;</span><br><span class="line">    select * from user where uid&#x3D;$&#123;uid&#125;</span><br><span class="line">&lt;&#x2F;select&gt;</span><br></pre></td></tr></table></figure>
+
+<p>  其他SQL拼接：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"># JDBC中的拼接，关注+：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid='"</span>+ UID +<span class="string">"'"</span>);</span><br><span class="line"># JDBC中的预编译：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid= ?"</span>);</span><br><span class="line"></span><br><span class="line"># Hibernate中的拼接：</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = '"</span> + UID + <span class="string">"'"</span>);</span><br><span class="line">List result = session.createQuery(queryString).list();</span><br><span class="line"># Hibernate中的预编译</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = :UID"</span>);</span><br><span class="line">paramters.setString(<span class="string">"UID"</span>, UID);</span><br></pre></td></tr></table></figure>
+
+<ol start="2">
+<li>若存在拼接参数，则逆向追踪拼接的参数传入过程，逆向追踪参数的路径大致为<code>Mapper -&gt; Dao -&gt; ServiceImpl -&gt; Controller</code></li>
+</ol>
+<p>⚠️ 并不是全部的<code>${}</code>拼接都会产生漏洞的，有以下几种情况是不存在SQL注入的：</p>
+<ol>
+<li>param不是用户传参进来的</li>
+<li>param不是字符类型，比如说parameter为int类型，只能传入数字，就没法产生SQL注入</li>
+<li>param在过程中已经转义或过滤字符，但是在Mybaits的SQL语句中看不出来，需考虑是否能绕过</li>
+</ol>
+<h2 id="参数追踪"><a href="#参数追踪" class="headerlink" title="参数追踪"></a>参数追踪</h2><p>以文章开头的SQL注入为例，来进行<code>keyword</code>参数逆向追踪过程</p>
+<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:70,94</code>存在<code>${}</code>拼接</p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/sqli-in-like.png" alt="sqli-in-like"></p>
+<p>可以看到在like后面使用了concat拼接，这是因为mapper.xml是使用mybatis-generator自动生成的，产生的like语句和in语句默认使用<code>#{}</code>，但这里使用<code>${}</code>拼接字符可能是由于作者修改功能时更改，导致SQL注入漏洞产生。</p>
+<p>同文件第三行，可以看到namespace为<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code></p>
+<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:3</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/mapper-namespace.png" alt="mapper-namespace"></p>
+<p>找到<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code>，根据xml中的select id找到<code>findNewBeeMallGoodsList</code>和<code>findNewBeeMallGoodsListBySearch</code>这两个方法。</p>
+<p><code>/src/main/java/ltd/newbee/mall/dao/NewBeeMallGoodsMapper.java</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsMapper.png" alt="NewBeeMallGoodsMapper"></p>
+<p>查看<code>findNewBeeMallGoodsListBySearch</code>方法的引用，追踪该处引用（Sublime将鼠标放在方法上可直接查看引用，IntelliJ IDEA可右键“Find Usages”或Option/Alt+F7查看引用）</p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/find-usages.png" alt="find-usages"></p>
+<p>追踪到<code>searchNewBeeMallGoods</code>方法，这里是<code>Service</code>层，主要负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。当前类<code>NewBeeMallGoodsServiceImpl</code>中的Impl就是implement（实现）中的impl。</p>
+<p>由于Service中都是接口，审计时一般直接查看<code>ServiceImpl</code>，忽视<code>Service</code>。</p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallGoodsServiceImpl.java:73</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsServiceImpl.png" alt="NewBeeMallGoodsServiceImpl"></p>
+<p>再追踪<code>searchNewBeeMallGoods</code>方法引用，来到<code>searchPage</code>方法。这里是<code>Controller</code>层，负责业务模块流程的控制，获取用户传来的参数后调用<code>Service</code>层的接口来控制业务流程。</p>
+<p>SpringBoot使用注解来控制URL路径，<code>searchNewBeeMallGoods</code>使用<code>@GetMapping({&quot;/search&quot;, &quot;/search.html&quot;})</code>表明接收来自<code>/search</code>或<code>/search.html</code>的get请求。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/GoodsController.java:57</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/GoodsController.png" alt="GoodsController"></p>
+<p>从48行可以看到，<code>keyword</code>为字符串类型，可以传入任意字符。51行将<code>params.get(&quot;keyword&quot;)</code>中的值赋给<code>keyword</code>变量，仅做了非空判断。</p>
+<p>其中if判断注释写着“去掉空格”，并不是将<code>keyword</code>参数中的空格去掉，而是去掉空格之后进行非空判断，不用考虑SQL注入绕过空格的方法。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//对keyword做过滤 去掉空格</span></span><br><span class="line"><span class="keyword">if</span> (params.containsKey(<span class="string">"keyword"</span>) &amp;&amp; !StringUtils.isEmpty((params.get(<span class="string">"keyword"</span>) + <span class="string">""</span>).trim()))</span><br></pre></td></tr></table></figure>
+
+
+
+<p>整个参数追踪就到这，还有一个需要注意的地方就是看看应用中是否存在过滤器，过滤器是否会将特殊字符拦截。该应用没有针对SQL注入的过滤器，所以追踪完参数，可以确定该处SQL拼接存在注入漏洞。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>对于SQL注入的审计，在Mapper中搜寻是否存在<code>${}</code>拼接的情况，尤其注意order by、group by、like、in。找到拼接后再逆向追踪参数，判断参数是否可控，是否是字符类型，检查是否存在过滤器过滤SQL字符。</p>
+<h2 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h2><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
+<p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
+<p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" data-id="ckc7fhcnt00055ajc4ry724ck" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Java SpringBoot框架代码审计四 - XSS
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

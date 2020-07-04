@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Java SpringBoot框架代码审计一 - 前期准备 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-JavaSpringBootCodeAudit-1-Preparation" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Java SpringBoot框架代码审计一 - 前期准备
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/" class="article-date">
+  <time datetime="2020-04-24T16:00:00.000Z" itemprop="datePublished">2020-04-25</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>本系列文章使用SpringBoot+Mybaits的小型商城作为本次代码审计的目标，项目地址：<a href="https://github.com/newbee-ltd/newbee-mall。" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall。</a></p>
+<p>SpringBoot+Mybatis这套架构使用较为广泛，相比于SpringMVC，SpringBoot简化了很多配置，更易上手使用。并且该项目属于小型系统，程序逻辑较为简单，作者编码规范，搭建也非常方便，只需要配置数据库（MySQL）和商品图片资源，SpringBoot自带中间件，无需额外配置中间件，方便调试，代码中没看懂的逻辑，下断点上手调试非常便捷，非常适合新手入门代码审计。</p>
+<a id="more"></a>
+
+<h2 id="代码配置"><a href="#代码配置" class="headerlink" title="代码配置"></a>代码配置</h2><p>从项目地址：<a href="https://github.com/newbee-ltd/newbee-mall下载代码，在IntelliJ" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall下载代码，在IntelliJ</a> IDEA中导入<code>pom.xml</code>，IDEA会以maven项目打开并自动下载依赖包。</p>
+<p>Spring属性文件路径：<code>/src/main/resources/application.properties</code>，其中可修改端口和mysql数据库地址</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">server.port</span>=<span class="string">8089</span></span><br><span class="line"><span class="attr">...</span></span><br><span class="line"><span class="meta">spring.datasource.url</span>=<span class="string">jdbc:mysql://localhost:3306/newbee_mall_db?...</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p>配置文件路径：<code>/src/main/java/ltd/newbee/mall/config/NeeBeeMallWebMvcConfigurer.java</code>，其中配置了图片路径</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">addResourceHandlers</span><span class="params">(ResourceHandlerRegistry registry)</span> </span>&#123;</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/upload/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/goods-img/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>此时是没有测试数据的，需要将<code>/src/main/resources/upload.zip</code>压缩包中的测试商品数据解压出来，放到任意的目录中。此处作为学习测试使用，可以直接解压在当前路径下，正式系统中一定要存放在非项目路径下。</p>
+<p>在文件<code>src/main/java/ltd/newbee/mall/common/Constants.java</code>中，变量<code>FILE_UPLOAD_DIC</code>为当前上传图片路径，将其更改为我们解压<code>upload.zip</code>的<strong>绝对</strong>路径</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Constants</span> </span>&#123;</span><br><span class="line">    <span class="comment">//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">static</span> String FILE_UPLOAD_DIC = <span class="string">"/some_path/src/main/resources/upload/"</span>;</span><br><span class="line">    <span class="comment">//public final static String FILE_UPLOAD_DIC = "D:\\upload\\";//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="MySQL数据库配置"><a href="#MySQL数据库配置" class="headerlink" title="MySQL数据库配置"></a>MySQL数据库配置</h2><p>过程中使用docker来快速搭建测试所需的数据库，docker方便更改测试过程中使用到的各组件版本，并且测试结束后可删除容器而不对本地环境造成任何影响。</p>
+<p>使用其他方法安装mysql数据库也行，记得要在配置文件中更改mysql地址。代码部署在docker内也是可以的，不过考虑调试方便，还是建议直接本地运行代码，有远程调试经验的同学可以尝试将代码一同布置在docker内。</p>
+<p>拉取mysql（latest为最新版本，需要其他版本可将lastest改为具体版本号即可）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker pull mysql:latest</span><br></pre></td></tr></table></figure>
+
+<p>运行（因为仅作为测试环境，并且在容器里，所以将mysql密码设置为简单密码，非测试环境慎重）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -itd --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 mysql</span><br></pre></td></tr></table></figure>
+
+<p>进入容器，确定MySQL正常运行</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it mysql /bin/bash</span><br><span class="line"></span><br><span class="line">root@815203ed6f5a:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">Enter password: 123456</span><br><span class="line">mysql&gt; select @@version;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-version.png" alt="mysql-version"></p>
+<p>另起一个终端，将sql文件复制到容器内（8d3b6661cdd2是容器ID）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker cp /some_path/newbee-mall/src/main/resources/newbee_mall_schema.sql 815203ed6f5a:/root</span><br></pre></td></tr></table></figure>
+
+<p>回到容器，建立数据库（如果这里更改了数据库名，需要同时修改<code>application.properties</code>中mysql连接的数据库名）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">mysql&gt; create database newbee_mall_db；</span><br><span class="line">mysql&gt; <span class="built_in">exit</span></span><br></pre></td></tr></table></figure>
+
+<p>执行sql文件</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p newbee_mall_db&lt;/root/newbee_mall_schema.sql</span></span><br></pre></td></tr></table></figure>
+
+<p>进行简单的数据库查询，校验是否成功导入SQL。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; use newbee_mall_db;</span><br><span class="line">mysql&gt; select * from tb_newbee_mall_admin_user;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-import-sql.png" alt="mysql-import-sql"></p>
+<p>看到能成功查询我们导入的SQL，配置成功～（中文字符没显示出来，被<code>?</code>代替）</p>
+<h2 id="启动项目"><a href="#启动项目" class="headerlink" title="启动项目"></a>启动项目</h2><p>以上步骤完成后，在IntelliJ IDEA中运行项目，访问在<code>application.properties</code>中配置的端口就能看到项目。</p>
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/run-application.png" alt="run-application"></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/" data-id="ckc7fhcnp00035ajcgnpt79x0" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍
+          
+        </div>
+      </a>
+    
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-JavaSpringBootCodeAudit-2-SpringBoot" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/" class="article-date">
+  <time datetime="2020-04-25T16:00:00.000Z" itemprop="datePublished">2020-04-26</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>一个简单Spring Boot项目的目录结构如下图</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="image-20200120175650940" style="zoom:33%;">
+
+<a id="more"></a>
+
+<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
+<h3 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h3><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
+<p><code>config/</code>: 存放配置文件</p>
+<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
+<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
+<p><code>entity/</code>: 存放实体类</p>
+<p><code>interceptor/</code>: 拦截器</p>
+<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
+<p><code>utils/</code>: 存放工具类</p>
+<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
+<p>非该项目，但可能存在的文件夹：</p>
+<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
+<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
+<p><code>constant/</code>:  存放常量</p>
+<p><code>filter/</code>: 存放过滤器</p>
+<p><code>component/</code>: 存放组件</p>
+<h3 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h3><p>在<code>src/main/resources</code>下存放资源文件</p>
+<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
+<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
+<p><code>templates/</code>: 存放模版文件</p>
+<p><code>application.properties</code>: Spring Boot默认配置文件</p>
+<p>非该项目，但可能存在的文件：</p>
+<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
+<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
+<h3 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h3><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
+<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
+<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
+<h2 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h2><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
+<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
+<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
+<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
+<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
+<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
+<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="image-20200505100152932" style="zoom:50%;">
+
+
+
+<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="image-20200505221317811" style="zoom:50%;">
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/" data-id="ckc7fhcnr00045ajc3j3sewj4" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Java SpringBoot框架代码审计三 - SQL注入
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Java SpringBoot框架代码审计一 - 前期准备</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

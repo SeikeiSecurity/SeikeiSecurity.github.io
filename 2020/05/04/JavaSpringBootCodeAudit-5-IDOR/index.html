@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Java SpringBoot框架代码审计五 - 越权 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-JavaSpringBootCodeAudit-5-IDOR" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Java SpringBoot框架代码审计五 - 越权
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" class="article-date">
+  <time datetime="2020-05-03T16:00:00.000Z" itemprop="datePublished">2020-05-04</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
+<a id="more"></a>
+
+<h1 id="访问控制"><a href="#访问控制" class="headerlink" title="访问控制"></a>访问控制</h1><p>常见的控制有基于角色的访问控制和基于资源的访问控制。</p>
+<p>基于角色的访问控制以角色为主体，以角色进行访问控制粒度较粗，可扩展性不强，不利于系统维护。</p>
+<p>基于资源的访问控制以可访问的资源（简单说就是URL）为主体，可扩展性强，权限变动时容易更改。</p>
+<p>Java中做角色控制的组件常见的有Apache shiro和Spring Security，它们将软件系统的安全认证相关的功能抽取出来，实现用户身份认证，权限授权、加密、会话管理等功能，组成了一个通用的安全认证框架。</p>
+<p>Shiro使用广泛，shiro可以运行在web应用，非web应用，集群分布式应用中越来越多的用户使用shiro。Shiro相对独立，并且使用简单、灵活。</p>
+<p>Spring Security(原名Acegi)也是一个开源的权限管理框架，spring security依赖spring运行。除了权限管理，它也有较多其他安全功能，体量较重，使用程度没有Shiro广泛，但它提供的安全防护能力是最全的。</p>
+<p>案例项目仅使用interceptor（拦截器）根据URL路径做访问控制的，相对于使用成熟的框架，自写拦截器容易出现更多安全问题。</p>
+<p>Interceptor配置在<code>/src/main/java/ltd/newbee/mall/config/NeeBeeMallWebMvcConfigurer.java</code>中，针对url路径设置了不同的interceptor。</p>
+<p><code>addPathPatterns</code>表示其中的路径会经过设置的拦截器，<code>excludePathPatterns</code>则不过该拦截器。其中两个星<code>**</code>表示匹配任意字符，如果出现一个<code>*</code>则表示匹配单个路径</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/path-interceptor.png" alt="path-interceptor"></p>
+<p>看到这里可能有同学会想，此处配置拦截器路径是否会存在绕过的可能性呢？</p>
+<p>Spring中拦截器的分配是由<code>DispatcherServlet</code>来分配的，也就是根据<code>ServletPath</code>来分配路径，和<code>getRequestURI</code>无关，也就是不管怎么使用<code>../</code>来做路径穿越，最终得到的还是ServletPath。如果使用类似<code>%00</code>空字符进行截断路径，会使得<code>DispatcherServlet</code>无法将请求分配到正确的Controller，导致请求无效。</p>
+<h2 id="管理员访问控制"><a href="#管理员访问控制" class="headerlink" title="管理员访问控制"></a>管理员访问控制</h2><p>先来看管理员的权限控制拦截器<code>AdminLoginInterceptor</code>。</p>
+<p>第24行的if判断，若uri开头为<code>/admin</code>并且当前session中没有<code>loginUser</code>属性，则跳转到登录页面，注意这里uri是通过<code>getRequestURI()</code>获取的，关于该方法存在的问题可以查看<a href="https://xz.aliyun.com/t/7544" target="_blank" rel="noopener">https://xz.aliyun.com/t/7544</a> 或<a href="https://joychou.org/web/security-of-getRequestURI.html" target="_blank" rel="noopener">https://joychou.org/web/security-of-getRequestURI.html</a> </p>
+<p><code>/src/main/java/ltd/newbee/mall/interceptor/AdminLoginInterceptor.java:24</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor.png" alt="AdminLoginInterceptor"></p>
+<p>在未登录的情况下，访问<a href="http://localhost:8089/index/..;/admin" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin</a> 可直接访问管理后台。此时<code>getRequestURI()</code>获取的值为<code>/index/..;/admin</code>，这样就绕过了<code>uri.startsWith(&quot;/admin&quot;)</code>的判断，使得if判断为假，不会跳转到登录页面。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor-Bypass.png" alt="AdminLoginInterceptor-Bypass"></p>
+<p>我们对if判断进行调试，看到传入的uri为<code>/index/..;/admin/goods/list</code>，</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/debug-bypass-adminlogininterceptor1.png" alt="debug-bypass-adminlogininterceptor"></p>
+<p>if判断条件为假，跳转到else语句中</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/debug-bypass-adminlogininterceptor2.png" alt="debug-bypass-adminlogininterceptor2"></p>
+<p>没有cookie的请求中，成功查询到管理员页面中的商品信息</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-bypass-adminlogininterceptor.png" alt="burp-request-bypass-adminlogininterceptor"></p>
+<p>修复方法是将 <code>getRequestURI</code>改为<code>getServletPath()</code></p>
+<p>再次调试，可以看到通过<code>getServletPath()</code>获取了正确的请求路径</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/mitigate-bypass-adminlogininterceptor.png" alt="mitigate-bypass-adminlogininterceptor"></p>
+<p>此时再访问会返回302跳转到登录页面</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-mitigated-adminlogininterceptor.png" alt="burp-request-mitigated-adminlogininterceptor"></p>
+<h2 id="普通用户访问控制"><a href="#普通用户访问控制" class="headerlink" title="普通用户访问控制"></a>普通用户访问控制</h2><p>普通用户的访问控制就简单粗暴了，直接判断当前session中是否存在<code>newBeeMallUser</code>属性，也就是判断当前用户是否登录。</p>
+<p><code>/src/main/java/ltd/newbee/mall/interceptor/NewBeeMallLoginInterceptor.java:24</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallLoginInterceptor.png" alt="NewBeeMallLoginInterceptor"></p>
+<p>这回不管用什么路径都无法绕过登录限制，因为请求对应的session中没有<code>MALL_USER_SESSION_KEY</code>的值。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/try-to-bypass-newbeemalllogininterceptor.png" alt="NewBeeMallLoginInterceptor"></p>
+<p>我们再回到拦截器的配置中来，看路径配置是否可能存在配置不当的情况，漏掉部分需要登录限制</p>
+<img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/newbeemalllogininterceprot-config.png" alt="image-20200504150230909" style="zoom: 43%;">
+
+<p>在Controller中一番搜寻，发现在<code>/src/main/java/ltd/newbee/mall/controller/mall/PersonalController.java:48</code>中，其中只有<code>/personal</code>和<code>/personal/updateInfo</code>设置了规则，而<code>/personal/addresses</code>未被配置拦截路径。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/personal/addresses"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">addressesPage</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"mall/addresses"</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>访问发现该路径确实没有经过登录拦截器，但是作者没有配置<code>mall/addresses</code>模版，也就是说这里是个未开发的功能，尚未构成漏洞。但仍存在隐患，若日后开发新功能时没有及时修改拦截器中的配置，就会导致未授权访问。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-bypass-newbellmalllogininterceptor.png" alt="burp-request-bypass-newbellmalllogininterceptor"></p>
+<h1 id="越权"><a href="#越权" class="headerlink" title="越权"></a>越权</h1><h2 id="垂直越权"><a href="#垂直越权" class="headerlink" title="垂直越权"></a>垂直越权</h2><p>由于系统没有垂直权限的概念，管理员和普通用户都是独立存在的，管理员进行管理工作，普通用户进行购物、个人信息编辑操作。</p>
+<p>这里简单说一下审计思路，审计时弄明白是基于角色还是基于资源做的权限控制还是根本就没做权限控制。再根据其配置内容去找是否存在错误配置的权限，和找权限控制本身是否存在绕过的可能性。</p>
+<h2 id="水平越权"><a href="#水平越权" class="headerlink" title="水平越权"></a>水平越权</h2><p>在开发时有一个原则是尽量从session中获取用户ID进行查询，这样会避免越权查询漏洞产生。</p>
+<p>我们以查看「我的订单」为例，其中<code>user</code>对象直接从<code>httpSession</code>中获取，再将<code>user</code>中的<code>userId</code>传入后续步骤，最后在数据库中查询。这样一个过程用户侧是没法控制<code>userId</code>，使得该次数据库查询不可能越权。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/OrderController.java:47</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/OrderController-orderListPage.png" alt="OrderController-orderListPage"></p>
+<p>我们再来看个人信息修改，此时对数据库进行查询的是<code>mallUser.getUserId()</code>，而<code>mallUser</code>是从用户侧获取的，所以该处存在越权修改个人信息漏洞。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/PersonalController.java:114</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/PersonController-updateInfo.png" alt="PersonController-updateInfo"></p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallUserServiceImpl.java:73</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallUserServiceImpl-updateUserInfo.png" alt="NewBeeMallUserServiceImpl-updateUserInfo"></p>
+<p>修改<code>userId</code>的值即可更改任意用户的个人信息。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-updateInfo.png" alt="burp-request-updateInfo"></p>
+<p>修改方案就是将<code>userId</code>从<code>httpSession</code>中获取，而不是不通过用户可控的<code>mallUser.getUserId</code>获取。</p>
+<p>以上是查询信息一对一的情况，一对一可以直接通过session获取，而一对多的查询不行，比如查询某订单的情况，一名用户可能存在多个订单，此时就不能仅从session中获取id进行查询，订单号只能通过用户传入。</p>
+<p>以订单查询为例，<code>OrderController.java</code>中第36行，有一行从Session中获取user的语句，第37行，存在<code>user.getUserId()</code>，是否说明此处会带入session获取到的<code>userId</code>一同查询呢？</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/OrderController-orderDetailPage.png" alt="OrderController-orderDetailPage"></p>
+<p>我们继续跟入<code>newBeeMallOrderService.getOrderDetailByOrderNo()</code>，发现它直接使用orderNo进行查询，并没有代入从session中获取的<code>userId</code>，这真是欺骗感情啊！</p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallOrderServiceImpl.java</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallOrderServiceImpl-getOrderDetailByOrderNo.png" alt="NewBeeMallOrderServiceImpl-getOrderDetailByOrderNo"></p>
+<p>毫无疑问，此处仅通过用户传入的<code>orderNo</code>获取订单信息一定存在越权查询。</p>
+<p>我们新建一个test1用户，查看「我的订单」，空空如也</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/new-user-test1.png" alt="new-user-test1"></p>
+<p>通过test1访问他人的订单号，发现成功访问，可以看到订单细节</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/query-others-order-detail.png" alt="query-others-order-detail"></p>
+<h3 id="修复方案"><a href="#修复方案" class="headerlink" title="修复方案"></a>修复方案</h3><p>表结构在设计之初应考虑订单和用户对应的关系，案例项目数据库订单表结构部分信息如下：</p>
+<table>
+<thead>
+<tr>
+<th>order_id</th>
+<th>order_no</th>
+<th>user_id</th>
+<th>total_price</th>
+<th>pay_status</th>
+<th>pay_type</th>
+<th>extra_info</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>15688187285093508</td>
+<td>1</td>
+<td>2492</td>
+<td>1</td>
+<td>2</td>
+<td></td>
+</tr>
+<tr>
+<td>2</td>
+<td>15885800076852966</td>
+<td>10</td>
+<td>2245</td>
+<td>1</td>
+<td>1</td>
+<td></td>
+</tr>
+</tbody></table>
+<p>可以看到存在其中<code>order_no</code>和<code>user_id</code>存在对应关系，所以将<code>orderNo</code>和从session中获取的<code>userId</code>同时查询可解决越权问题。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * forom tb_newbee_mall_order <span class="keyword">where</span> order_no = <span class="comment">#&#123;orderNo,jdbcType=VARCHAR&#125; and user_id = #&#123;userId,jdbcType=LONG&#125; and is_deleted=0 limit 1</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://blog.csdn.net/icarusliu/article/details/78809790" target="_blank" rel="noopener">https://blog.csdn.net/icarusliu/article/details/78809790</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" data-id="ckc7fhcnw00075ajc9xam98r4" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Java SpringBoot框架代码审计六 - CSRF
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Java SpringBoot框架代码审计四 - XSS</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

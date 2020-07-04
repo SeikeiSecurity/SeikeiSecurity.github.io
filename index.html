@@ -81,7 +81,7 @@
                                                                 
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/" data-id="ckc7c3cd90003mpjchmu5bb8l" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/" data-id="ckc7fhcnn00025ajccsoh3v7c" class="article-share-link">
                                             分享
                                         </a> -->
                                         
@@ -142,7 +142,7 @@
                                                                 
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/" data-id="ckc7c3cd60001mpjccssq3npm" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/" data-id="ckc7fhcnm00015ajcgdsc1yq6" class="article-share-link">
                                             分享
                                         </a> -->
                                         
@@ -206,7 +206,7 @@
                                                                 
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/" data-id="ckc7c3cd20000mpjc00bs8hp0" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/" data-id="ckc7fhcnh00005ajc437w2tw6" class="article-share-link">
                                             分享
                                         </a> -->
                                         
@@ -266,7 +266,369 @@
                                                                 
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/06/13/Spring_ModelAndView_Injection/" data-id="ckc7c3cd80002mpjchnz37hiy" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/06/13/Spring_ModelAndView_Injection/" data-id="ckc7fhcp5000a5ajcbcvtgorr" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+
+                
+
+</article>
+        
+          <article id="post-JavaSpringBootCodeAudit-7-Logical-Vulnerability" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h2 itemprop="name">
+      <a class="article-title" href="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/">Java SpringBoot框架代码审计七 - 逻辑漏洞</a>
+    </h2>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/" class="article-date">
+  <time datetime="2020-05-05T16:00:00.000Z" itemprop="datePublished">2020-05-06</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                    <p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+                                                        
+                                                            <a class="article-more-link" href="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/">
+                                                                Read More...
+                                                            </a>
+                                                            
+                                                                
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/" data-id="ckc7fhcp300095ajcbgpw6bqm" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+
+                
+
+</article>
+        
+          <article id="post-JavaSpringBootCodeAudit-6-CSRF" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h2 itemprop="name">
+      <a class="article-title" href="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/">Java SpringBoot框架代码审计六 - CSRF</a>
+    </h2>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/" class="article-date">
+  <time datetime="2020-05-04T16:00:00.000Z" itemprop="datePublished">2020-05-05</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                    <p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
+                                                        
+                                                            <a class="article-more-link" href="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/">
+                                                                Read More...
+                                                            </a>
+                                                            
+                                                                
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/" data-id="ckc7fhcp300085ajcbtxbhmsv" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+
+                
+
+</article>
+        
+          <article id="post-JavaSpringBootCodeAudit-5-IDOR" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h2 itemprop="name">
+      <a class="article-title" href="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/">Java SpringBoot框架代码审计五 - 越权</a>
+    </h2>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" class="article-date">
+  <time datetime="2020-05-03T16:00:00.000Z" itemprop="datePublished">2020-05-04</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                    <p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
+                                                        
+                                                            <a class="article-more-link" href="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/">
+                                                                Read More...
+                                                            </a>
+                                                            
+                                                                
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" data-id="ckc7fhcnw00075ajc9xam98r4" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+
+                
+
+</article>
+        
+          <article id="post-JavaSpringBootCodeAudit-4-XSS" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h2 itemprop="name">
+      <a class="article-title" href="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/">Java SpringBoot框架代码审计四 - XSS</a>
+    </h2>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" class="article-date">
+  <time datetime="2020-05-02T16:00:00.000Z" itemprop="datePublished">2020-05-03</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                    <p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
+                                                        
+                                                            <a class="article-more-link" href="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/">
+                                                                Read More...
+                                                            </a>
+                                                            
+                                                                
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" data-id="ckc7fhcnv00065ajc1e8dfnon" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+
+                
+
+</article>
+        
+          <article id="post-JavaSpringBootCodeAudit-3-SQL-Injection" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h2 itemprop="name">
+      <a class="article-title" href="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/">Java SpringBoot框架代码审计三 - SQL注入</a>
+    </h2>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" class="article-date">
+  <time datetime="2020-04-30T16:00:00.000Z" itemprop="datePublished">2020-05-01</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                    <p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
+<p><a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">案例项目</a>使用Mybatis作为数据持久层框架，进行数据库的各种操作。MyBatis的主要思想是将程序中的大量SQL语句剥离出来，配置在配置文件当中，实现SQL的灵活配置。配置文件常存放在<code>src/main/resources/mapper</code>中，配置文件命名为<code>ExampleMapper.xml</code></p>
+                                                        
+                                                            <a class="article-more-link" href="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/">
+                                                                Read More...
+                                                            </a>
+                                                            
+                                                                
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" data-id="ckc7fhcnt00055ajc4ry724ck" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+
+                
+
+</article>
+        
+          <article id="post-JavaSpringBootCodeAudit-2-SpringBoot" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h2 itemprop="name">
+      <a class="article-title" href="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/">Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</a>
+    </h2>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/" class="article-date">
+  <time datetime="2020-04-25T16:00:00.000Z" itemprop="datePublished">2020-04-26</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                    <p>一个简单Spring Boot项目的目录结构如下图</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="image-20200120175650940" style="zoom:33%;">
+                                                        
+                                                            <a class="article-more-link" href="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/">
+                                                                Read More...
+                                                            </a>
+                                                            
+                                                                
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/" data-id="ckc7fhcnr00045ajc3j3sewj4" class="article-share-link">
                                             分享
                                         </a> -->
                                         
@@ -283,6 +645,10 @@
     </article>
     
   
+    
+      <nav class="page-nav">
+        <span class="page-number current">1</span><a class="page-number" href="/page/2/">2</a><a class="extend next" rel="next" href="/page/2/">下一页</a>
+      </nav>
     
   </section>
 </div>

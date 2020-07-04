@@ -143,6 +143,584 @@
 ]]></content>
   </entry>
   <entry>
+    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
+    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
+    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
+<a id="more"></a>
+
+<h2 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h2><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
+<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
+<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">        <span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">        <span class="comment">// by Spring MVC</span></span><br><span class="line">        <span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h2><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
+<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
+</blockquote>
+<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
+<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="image-20200703202336573" style="zoom:45%;">
+
+
+
+<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="image-20200703201319193" style="zoom:45%;">
+
+
+
+<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="image-20200703201419975" style="zoom:45%;">
+
+
+
+<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="image-20200703202141359" style="zoom:45%;">
+
+
+
+<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
+<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="image-20200703225103246" style="zoom:45%;">
+
+
+
+<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="image-20200703223208316" style="zoom:45%;">
+
+
+
+<p><code>load</code>方法如下</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="image-20200703224718336" style="zoom:45%;">
+
+<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="image-20200703223136604" style="zoom:45%;">
+
+
+
+<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
+<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="image-20200703225853171" style="zoom:45%;">
+
+
+
+<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
+<h2 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h2><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a> </p>
+<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
+<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
+<p>测试之后发现同样会返回文件内容。</p>
+<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a> </p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
+<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计一 - 前期准备</title>
+    <url>/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/</url>
+    <content><![CDATA[<p>本系列文章使用SpringBoot+Mybaits的小型商城作为本次代码审计的目标，项目地址：<a href="https://github.com/newbee-ltd/newbee-mall。" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall。</a></p>
+<p>SpringBoot+Mybatis这套架构使用较为广泛，相比于SpringMVC，SpringBoot简化了很多配置，更易上手使用。并且该项目属于小型系统，程序逻辑较为简单，作者编码规范，搭建也非常方便，只需要配置数据库（MySQL）和商品图片资源，SpringBoot自带中间件，无需额外配置中间件，方便调试，代码中没看懂的逻辑，下断点上手调试非常便捷，非常适合新手入门代码审计。</p>
+<a id="more"></a>
+
+<h2 id="代码配置"><a href="#代码配置" class="headerlink" title="代码配置"></a>代码配置</h2><p>从项目地址：<a href="https://github.com/newbee-ltd/newbee-mall下载代码，在IntelliJ" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall下载代码，在IntelliJ</a> IDEA中导入<code>pom.xml</code>，IDEA会以maven项目打开并自动下载依赖包。</p>
+<p>Spring属性文件路径：<code>/src/main/resources/application.properties</code>，其中可修改端口和mysql数据库地址</p>
+<figure class="highlight properties"><table><tr><td class="code"><pre><span class="line"><span class="meta">server.port</span>=<span class="string">8089</span></span><br><span class="line"><span class="attr">...</span></span><br><span class="line"><span class="meta">spring.datasource.url</span>=<span class="string">jdbc:mysql://localhost:3306/newbee_mall_db?...</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p>配置文件路径：<code>/src/main/java/ltd/newbee/mall/config/NeeBeeMallWebMvcConfigurer.java</code>，其中配置了图片路径</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">addResourceHandlers</span><span class="params">(ResourceHandlerRegistry registry)</span> </span>&#123;</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/upload/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/goods-img/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>此时是没有测试数据的，需要将<code>/src/main/resources/upload.zip</code>压缩包中的测试商品数据解压出来，放到任意的目录中。此处作为学习测试使用，可以直接解压在当前路径下，正式系统中一定要存放在非项目路径下。</p>
+<p>在文件<code>src/main/java/ltd/newbee/mall/common/Constants.java</code>中，变量<code>FILE_UPLOAD_DIC</code>为当前上传图片路径，将其更改为我们解压<code>upload.zip</code>的<strong>绝对</strong>路径</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Constants</span> </span>&#123;</span><br><span class="line">    <span class="comment">//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">static</span> String FILE_UPLOAD_DIC = <span class="string">"/some_path/src/main/resources/upload/"</span>;</span><br><span class="line">    <span class="comment">//public final static String FILE_UPLOAD_DIC = "D:\\upload\\";//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="MySQL数据库配置"><a href="#MySQL数据库配置" class="headerlink" title="MySQL数据库配置"></a>MySQL数据库配置</h2><p>过程中使用docker来快速搭建测试所需的数据库，docker方便更改测试过程中使用到的各组件版本，并且测试结束后可删除容器而不对本地环境造成任何影响。</p>
+<p>使用其他方法安装mysql数据库也行，记得要在配置文件中更改mysql地址。代码部署在docker内也是可以的，不过考虑调试方便，还是建议直接本地运行代码，有远程调试经验的同学可以尝试将代码一同布置在docker内。</p>
+<p>拉取mysql（latest为最新版本，需要其他版本可将lastest改为具体版本号即可）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker pull mysql:latest</span><br></pre></td></tr></table></figure>
+
+<p>运行（因为仅作为测试环境，并且在容器里，所以将mysql密码设置为简单密码，非测试环境慎重）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker run -itd --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 mysql</span><br></pre></td></tr></table></figure>
+
+<p>进入容器，确定MySQL正常运行</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it mysql /bin/bash</span><br><span class="line"></span><br><span class="line">root@815203ed6f5a:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">Enter password: 123456</span><br><span class="line">mysql&gt; select @@version;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-version.png" alt="mysql-version"></p>
+<p>另起一个终端，将sql文件复制到容器内（8d3b6661cdd2是容器ID）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker cp /some_path/newbee-mall/src/main/resources/newbee_mall_schema.sql 815203ed6f5a:/root</span><br></pre></td></tr></table></figure>
+
+<p>回到容器，建立数据库（如果这里更改了数据库名，需要同时修改<code>application.properties</code>中mysql连接的数据库名）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">mysql&gt; create database newbee_mall_db；</span><br><span class="line">mysql&gt; <span class="built_in">exit</span></span><br></pre></td></tr></table></figure>
+
+<p>执行sql文件</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p newbee_mall_db&lt;/root/newbee_mall_schema.sql</span></span><br></pre></td></tr></table></figure>
+
+<p>进行简单的数据库查询，校验是否成功导入SQL。</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">mysql&gt; use newbee_mall_db;</span><br><span class="line">mysql&gt; select * from tb_newbee_mall_admin_user;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-import-sql.png" alt="mysql-import-sql"></p>
+<p>看到能成功查询我们导入的SQL，配置成功～（中文字符没显示出来，被<code>?</code>代替）</p>
+<h2 id="启动项目"><a href="#启动项目" class="headerlink" title="启动项目"></a>启动项目</h2><p>以上步骤完成后，在IntelliJ IDEA中运行项目，访问在<code>application.properties</code>中配置的端口就能看到项目。</p>
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/run-application.png" alt="run-application"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
+    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
+    <content><![CDATA[<p>一个简单Spring Boot项目的目录结构如下图</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="image-20200120175650940" style="zoom:33%;">
+
+<a id="more"></a>
+
+<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
+<h3 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h3><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
+<p><code>config/</code>: 存放配置文件</p>
+<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
+<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
+<p><code>entity/</code>: 存放实体类</p>
+<p><code>interceptor/</code>: 拦截器</p>
+<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
+<p><code>utils/</code>: 存放工具类</p>
+<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
+<p>非该项目，但可能存在的文件夹：</p>
+<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
+<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
+<p><code>constant/</code>:  存放常量</p>
+<p><code>filter/</code>: 存放过滤器</p>
+<p><code>component/</code>: 存放组件</p>
+<h3 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h3><p>在<code>src/main/resources</code>下存放资源文件</p>
+<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
+<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
+<p><code>templates/</code>: 存放模版文件</p>
+<p><code>application.properties</code>: Spring Boot默认配置文件</p>
+<p>非该项目，但可能存在的文件：</p>
+<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
+<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
+<h3 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h3><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
+<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
+<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
+<h2 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h2><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
+<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
+<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
+<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
+<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
+<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
+<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="image-20200505100152932" style="zoom:50%;">
+
+
+
+<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="image-20200505221317811" style="zoom:50%;">]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计三 - SQL注入</title>
+    <url>/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/</url>
+    <content><![CDATA[<p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
+<p><a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">案例项目</a>使用Mybatis作为数据持久层框架，进行数据库的各种操作。MyBatis的主要思想是将程序中的大量SQL语句剥离出来，配置在配置文件当中，实现SQL的灵活配置。配置文件常存放在<code>src/main/resources/mapper</code>中，配置文件命名为<code>ExampleMapper.xml</code></p>
+<a id="more"></a>
+
+<p>在<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">项目</a>的第一个issue中看到已经有人提出<a href="https://github.com/newbee-ltd/newbee-mall/issues/1" target="_blank" rel="noopener">SQL注入漏洞</a>，并给出poc： <code>http://127.0.0.1:28089/search?goodsCategoryId=&amp;keyword=\%&#39;)) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,CONCAT(0x7176627871,IFNULL(CAST(CURRENT_USER() AS CHAR),0x20),0x7162786b71),NULL,NULL#&amp;orderBy=default</code>   </p>
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/SQLi-issue.png" alt="image-20200120171936521" style="zoom:50%;">
+
+<p>随后作者对该SQL注入点进行修复，<a href="https://github.com/newbee-ltd/newbee-mall/commit/dac570107a67044ac754c9a20cd6ef305ed56b0e#comments" target="_blank" rel="noopener">commit</a>中将<code>like</code>模糊查询处的<code>${keyword}</code>改为<code>#{keyword}</code>。</p>
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/fix-sqli-ommit.png" alt="image-20200120171518893" style="zoom:40%;">
+
+
+
+<h2 id="SQL注入产生原理"><a href="#SQL注入产生原理" class="headerlink" title="SQL注入产生原理"></a>SQL注入产生原理</h2><p>为什么将<code>${}</code>改为<code>#{}</code>就能防止SQL注入呢？</p>
+<p>MyBatis<a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">官方文档</a>中有如下叙述:</p>
+<blockquote>
+<p><code>#{}</code>告诉 MyBatis 创建一个预编译语句（PreparedStatement）参数，在 JDBC 中，这样的一个参数在 SQL 中会由一个“?”来标识，并被传递到一个新的预处理语句中，就像这样：</p>
+</blockquote>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// 近似的 JDBC 代码，非 MyBatis 代码...</span></span><br><span class="line">String selectPerson = <span class="string">"SELECT * FROM PERSON WHERE ID=?"</span>;</span><br><span class="line">PreparedStatement ps = conn.prepareStatement(selectPerson);</span><br><span class="line">ps.setInt(<span class="number">1</span>,id);</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/prepareStatement.png" alt="prepareStatement"></p>
+<p><code>${}</code> 仅仅是纯粹的 string 替换，在动态 SQL 解析阶段将会进行变量替换，类似于直接替换字符串，会导致SQL注入产生。</p>
+<p>官方也给出警示：</p>
+<blockquote>
+<p>用这种方式接受用户的输入，并将其用于语句中的参数是不安全的，会导致潜在的 SQL 注入攻击，<strong>因此要么不允许用户输入这些字段，要么自行转义并检验</strong>。</p>
+</blockquote>
+<p>开发的原则是能使用<code>#{}</code>的地方，一定使用<code>#{}</code>。但是SQL语句中存在无法使用<code>#{}</code>的场景，因为使用<code>#{}</code>会在原本的字段加上引号<code>&#39;&#39;</code>，导致SQL语句报错。不能使用<code>#{}</code>的场景我们需要特别注意，此处极易产生SQL注入。</p>
+<p>不能使用<code>#{}</code>的场景有：</p>
+<ol>
+<li>表名/字段名</li>
+<li>order by/group by</li>
+<li>like模糊查询</li>
+<li>in</li>
+</ol>
+<p>以表名为例，使用<code>#{}</code>替换字符串时会带上单引号 <code>&#39;&#39;</code>，这会导致 sql 语法错误，例如：</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="comment">#&#123;tableName&#125; where name = #&#123;name&#125;;</span></span><br></pre></td></tr></table></figure>
+
+<p>预编译之后的sql 变为：</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> ? <span class="keyword">where</span> <span class="keyword">name</span> = ?;</span><br></pre></td></tr></table></figure>
+
+<p>假设我们传入的参数为 tableName = “user” , name = “username”，那么在占位符进行变量替换后，sql 语句变为</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="string">'user'</span> <span class="keyword">where</span> <span class="keyword">name</span>=<span class="string">'username'</span>;</span><br></pre></td></tr></table></figure>
+
+<p>上述 sql 语句是存在语法错误的，表名不能加单引号 <code>&#39;&#39;</code>（不过反引号 ``是可以的）。</p>
+<p>不过表名一般不会通过用户传入，即使是用户传入，由于Mybatis的查询机制，并不会产生SQL注入。</p>
+<p>避免使用<code>${}</code>的方法</p>
+<ol>
+<li>表名/字段名</li>
+</ol>
+<p>尽量直接使用表名和字段名，如果有动态查询的需求时，将表名和字段名限定在指定字符。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">tableName = tableName.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
+
+
+
+<ol start="2">
+<li>order by/group by </li>
+</ol>
+<p>order by后</p>
+<p>修复方法是推荐开发在Java层面做映射，设置一个字段/表名数组，仅允许用户传入索引值。这样保证传入的字段或者表名都在白名单里面。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">query.append(<span class="string">" ORDER BY "</span>);    </span><br><span class="line">String[] orderByFields = orderByComparator.getOrderByFields();</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; orderByFields.length; i++) &#123;</span><br><span class="line">query.append(<span class="string">"appSetPersonal."</span>);</span><br><span class="line">query.append(orderByFields[i]);</span><br><span class="line">     </span><br><span class="line"><span class="keyword">if</span> (i + <span class="number">1</span> &lt; orderByFields.length) &#123;</span><br><span class="line">    <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">        query.append(<span class="string">" ASC, "</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        query.append(<span class="string">" DESC, "</span>);</span><br><span class="line">    &#125;</span><br><span class="line">        </span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">    query.append(<span class="string">" ASC"</span>);</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    query.append(<span class="string">" DESC"</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>或者将传入的值限定在指定字符，如</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">orderByField = orderByField.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li>like模糊查询</li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">mysql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="keyword">CONCAT</span>(<span class="string">'%'</span>,<span class="comment">#&#123;param&#125;,'%')</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">oracle</span>: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>||<span class="comment">#&#123;param&#125;||'%'</span></span><br><span class="line"></span><br><span class="line">mssql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>+<span class="comment">#&#123;param&#125;+'%'</span></span><br></pre></td></tr></table></figure>
+
+<ol start="4">
+<li>in</li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> <span class="keyword">id</span> <span class="keyword">in</span> </span><br><span class="line">&lt;foreach collection=<span class="string">"ids"</span> item=<span class="string">"item"</span> <span class="keyword">open</span>=<span class="string">"("</span> separator=<span class="string">","</span> <span class="keyword">close</span>=<span class="string">")"</span>&gt;</span><br><span class="line"><span class="comment">#&#123;item&#125;</span></span><br><span class="line">&lt;/foreach&gt;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="SQL注入代码审计"><a href="#SQL注入代码审计" class="headerlink" title="SQL注入代码审计"></a>SQL注入代码审计</h2><p>知道了SQL注入产生的原理，那么找漏洞就非常简单了。SQL注入是代码审计中最好找的漏洞之一，只需分析SQL语句发现拼接，再逆向追踪拼接参数用户是否可控。不用被代码的多层调用所干扰。</p>
+<p>SQL注入审计过程：</p>
+<ol>
+<li>在Dao层（Mybaits在Mapper中，Mybatis也有注解写SQL的方式，但很少用），查看SQL语句是否使用拼接，关注<code>${}</code></li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;select id&#x3D;&quot;getUID&quot; parameterType&#x3D;&quot;string&quot; reusltType&#x3D;&quot;User&quot;&gt;</span><br><span class="line">    select * from user where uid&#x3D;$&#123;uid&#125;</span><br><span class="line">&lt;&#x2F;select&gt;</span><br></pre></td></tr></table></figure>
+
+<p>  其他SQL拼接：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"># JDBC中的拼接，关注+：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid='"</span>+ UID +<span class="string">"'"</span>);</span><br><span class="line"># JDBC中的预编译：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid= ?"</span>);</span><br><span class="line"></span><br><span class="line"># Hibernate中的拼接：</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = '"</span> + UID + <span class="string">"'"</span>);</span><br><span class="line">List result = session.createQuery(queryString).list();</span><br><span class="line"># Hibernate中的预编译</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = :UID"</span>);</span><br><span class="line">paramters.setString(<span class="string">"UID"</span>, UID);</span><br></pre></td></tr></table></figure>
+
+<ol start="2">
+<li>若存在拼接参数，则逆向追踪拼接的参数传入过程，逆向追踪参数的路径大致为<code>Mapper -&gt; Dao -&gt; ServiceImpl -&gt; Controller</code></li>
+</ol>
+<p>⚠️ 并不是全部的<code>${}</code>拼接都会产生漏洞的，有以下几种情况是不存在SQL注入的：</p>
+<ol>
+<li>param不是用户传参进来的</li>
+<li>param不是字符类型，比如说parameter为int类型，只能传入数字，就没法产生SQL注入</li>
+<li>param在过程中已经转义或过滤字符，但是在Mybaits的SQL语句中看不出来，需考虑是否能绕过</li>
+</ol>
+<h2 id="参数追踪"><a href="#参数追踪" class="headerlink" title="参数追踪"></a>参数追踪</h2><p>以文章开头的SQL注入为例，来进行<code>keyword</code>参数逆向追踪过程</p>
+<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:70,94</code>存在<code>${}</code>拼接</p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/sqli-in-like.png" alt="sqli-in-like"></p>
+<p>可以看到在like后面使用了concat拼接，这是因为mapper.xml是使用mybatis-generator自动生成的，产生的like语句和in语句默认使用<code>#{}</code>，但这里使用<code>${}</code>拼接字符可能是由于作者修改功能时更改，导致SQL注入漏洞产生。</p>
+<p>同文件第三行，可以看到namespace为<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code></p>
+<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:3</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/mapper-namespace.png" alt="mapper-namespace"></p>
+<p>找到<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code>，根据xml中的select id找到<code>findNewBeeMallGoodsList</code>和<code>findNewBeeMallGoodsListBySearch</code>这两个方法。</p>
+<p><code>/src/main/java/ltd/newbee/mall/dao/NewBeeMallGoodsMapper.java</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsMapper.png" alt="NewBeeMallGoodsMapper"></p>
+<p>查看<code>findNewBeeMallGoodsListBySearch</code>方法的引用，追踪该处引用（Sublime将鼠标放在方法上可直接查看引用，IntelliJ IDEA可右键“Find Usages”或Option/Alt+F7查看引用）</p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/find-usages.png" alt="find-usages"></p>
+<p>追踪到<code>searchNewBeeMallGoods</code>方法，这里是<code>Service</code>层，主要负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。当前类<code>NewBeeMallGoodsServiceImpl</code>中的Impl就是implement（实现）中的impl。</p>
+<p>由于Service中都是接口，审计时一般直接查看<code>ServiceImpl</code>，忽视<code>Service</code>。</p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallGoodsServiceImpl.java:73</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsServiceImpl.png" alt="NewBeeMallGoodsServiceImpl"></p>
+<p>再追踪<code>searchNewBeeMallGoods</code>方法引用，来到<code>searchPage</code>方法。这里是<code>Controller</code>层，负责业务模块流程的控制，获取用户传来的参数后调用<code>Service</code>层的接口来控制业务流程。</p>
+<p>SpringBoot使用注解来控制URL路径，<code>searchNewBeeMallGoods</code>使用<code>@GetMapping({&quot;/search&quot;, &quot;/search.html&quot;})</code>表明接收来自<code>/search</code>或<code>/search.html</code>的get请求。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/GoodsController.java:57</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/GoodsController.png" alt="GoodsController"></p>
+<p>从48行可以看到，<code>keyword</code>为字符串类型，可以传入任意字符。51行将<code>params.get(&quot;keyword&quot;)</code>中的值赋给<code>keyword</code>变量，仅做了非空判断。</p>
+<p>其中if判断注释写着“去掉空格”，并不是将<code>keyword</code>参数中的空格去掉，而是去掉空格之后进行非空判断，不用考虑SQL注入绕过空格的方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">//对keyword做过滤 去掉空格</span></span><br><span class="line"><span class="keyword">if</span> (params.containsKey(<span class="string">"keyword"</span>) &amp;&amp; !StringUtils.isEmpty((params.get(<span class="string">"keyword"</span>) + <span class="string">""</span>).trim()))</span><br></pre></td></tr></table></figure>
+
+
+
+<p>整个参数追踪就到这，还有一个需要注意的地方就是看看应用中是否存在过滤器，过滤器是否会将特殊字符拦截。该应用没有针对SQL注入的过滤器，所以追踪完参数，可以确定该处SQL拼接存在注入漏洞。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>对于SQL注入的审计，在Mapper中搜寻是否存在<code>${}</code>拼接的情况，尤其注意order by、group by、like、in。找到拼接后再逆向追踪参数，判断参数是否可控，是否是字符类型，检查是否存在过滤器过滤SQL字符。</p>
+<h2 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h2><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
+<p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
+<p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计四 - XSS</title>
+    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
+    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
+<a id="more"></a>
+
+<p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
+<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
+<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
+<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
+<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="image-20200503171039156" style="zoom:50%;">
+
+
+
+<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
+<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
+<p>可以判断该应用程序中很可能存在XSS。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="image-20200505222936005" style="zoom:33%;">
+
+
+
+<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
+<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
+<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
+<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
+<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
+<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="image-20200503171058618" style="zoom:50%;">
+
+<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
+<ol>
+<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
+</ol>
+<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
+<ol start="2">
+<li>找不经过thymeleaf的输出</li>
+</ol>
+<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
+<p>发现触发我们输入的XSS payload</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
+<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
+<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
+<h2 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h2><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
+<ol>
+<li>对HTML做充分转义</li>
+</ol>
+<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如<a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
+<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
+<p>修复过程中得结合考虑实际的业务场景。</p>
+<ol start="2">
+<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
+</ol>
+<h2 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h2><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
+<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
+<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
+<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
+<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
+<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计五 - 越权</title>
+    <url>/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/</url>
+    <content><![CDATA[<p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
+<a id="more"></a>
+
+<h1 id="访问控制"><a href="#访问控制" class="headerlink" title="访问控制"></a>访问控制</h1><p>常见的控制有基于角色的访问控制和基于资源的访问控制。</p>
+<p>基于角色的访问控制以角色为主体，以角色进行访问控制粒度较粗，可扩展性不强，不利于系统维护。</p>
+<p>基于资源的访问控制以可访问的资源（简单说就是URL）为主体，可扩展性强，权限变动时容易更改。</p>
+<p>Java中做角色控制的组件常见的有Apache shiro和Spring Security，它们将软件系统的安全认证相关的功能抽取出来，实现用户身份认证，权限授权、加密、会话管理等功能，组成了一个通用的安全认证框架。</p>
+<p>Shiro使用广泛，shiro可以运行在web应用，非web应用，集群分布式应用中越来越多的用户使用shiro。Shiro相对独立，并且使用简单、灵活。</p>
+<p>Spring Security(原名Acegi)也是一个开源的权限管理框架，spring security依赖spring运行。除了权限管理，它也有较多其他安全功能，体量较重，使用程度没有Shiro广泛，但它提供的安全防护能力是最全的。</p>
+<p>案例项目仅使用interceptor（拦截器）根据URL路径做访问控制的，相对于使用成熟的框架，自写拦截器容易出现更多安全问题。</p>
+<p>Interceptor配置在<code>/src/main/java/ltd/newbee/mall/config/NeeBeeMallWebMvcConfigurer.java</code>中，针对url路径设置了不同的interceptor。</p>
+<p><code>addPathPatterns</code>表示其中的路径会经过设置的拦截器，<code>excludePathPatterns</code>则不过该拦截器。其中两个星<code>**</code>表示匹配任意字符，如果出现一个<code>*</code>则表示匹配单个路径</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/path-interceptor.png" alt="path-interceptor"></p>
+<p>看到这里可能有同学会想，此处配置拦截器路径是否会存在绕过的可能性呢？</p>
+<p>Spring中拦截器的分配是由<code>DispatcherServlet</code>来分配的，也就是根据<code>ServletPath</code>来分配路径，和<code>getRequestURI</code>无关，也就是不管怎么使用<code>../</code>来做路径穿越，最终得到的还是ServletPath。如果使用类似<code>%00</code>空字符进行截断路径，会使得<code>DispatcherServlet</code>无法将请求分配到正确的Controller，导致请求无效。</p>
+<h2 id="管理员访问控制"><a href="#管理员访问控制" class="headerlink" title="管理员访问控制"></a>管理员访问控制</h2><p>先来看管理员的权限控制拦截器<code>AdminLoginInterceptor</code>。</p>
+<p>第24行的if判断，若uri开头为<code>/admin</code>并且当前session中没有<code>loginUser</code>属性，则跳转到登录页面，注意这里uri是通过<code>getRequestURI()</code>获取的，关于该方法存在的问题可以查看<a href="https://xz.aliyun.com/t/7544" target="_blank" rel="noopener">https://xz.aliyun.com/t/7544</a> 或<a href="https://joychou.org/web/security-of-getRequestURI.html" target="_blank" rel="noopener">https://joychou.org/web/security-of-getRequestURI.html</a> </p>
+<p><code>/src/main/java/ltd/newbee/mall/interceptor/AdminLoginInterceptor.java:24</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor.png" alt="AdminLoginInterceptor"></p>
+<p>在未登录的情况下，访问<a href="http://localhost:8089/index/..;/admin" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin</a> 可直接访问管理后台。此时<code>getRequestURI()</code>获取的值为<code>/index/..;/admin</code>，这样就绕过了<code>uri.startsWith(&quot;/admin&quot;)</code>的判断，使得if判断为假，不会跳转到登录页面。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor-Bypass.png" alt="AdminLoginInterceptor-Bypass"></p>
+<p>我们对if判断进行调试，看到传入的uri为<code>/index/..;/admin/goods/list</code>，</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/debug-bypass-adminlogininterceptor1.png" alt="debug-bypass-adminlogininterceptor"></p>
+<p>if判断条件为假，跳转到else语句中</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/debug-bypass-adminlogininterceptor2.png" alt="debug-bypass-adminlogininterceptor2"></p>
+<p>没有cookie的请求中，成功查询到管理员页面中的商品信息</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-bypass-adminlogininterceptor.png" alt="burp-request-bypass-adminlogininterceptor"></p>
+<p>修复方法是将 <code>getRequestURI</code>改为<code>getServletPath()</code></p>
+<p>再次调试，可以看到通过<code>getServletPath()</code>获取了正确的请求路径</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/mitigate-bypass-adminlogininterceptor.png" alt="mitigate-bypass-adminlogininterceptor"></p>
+<p>此时再访问会返回302跳转到登录页面</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-mitigated-adminlogininterceptor.png" alt="burp-request-mitigated-adminlogininterceptor"></p>
+<h2 id="普通用户访问控制"><a href="#普通用户访问控制" class="headerlink" title="普通用户访问控制"></a>普通用户访问控制</h2><p>普通用户的访问控制就简单粗暴了，直接判断当前session中是否存在<code>newBeeMallUser</code>属性，也就是判断当前用户是否登录。</p>
+<p><code>/src/main/java/ltd/newbee/mall/interceptor/NewBeeMallLoginInterceptor.java:24</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallLoginInterceptor.png" alt="NewBeeMallLoginInterceptor"></p>
+<p>这回不管用什么路径都无法绕过登录限制，因为请求对应的session中没有<code>MALL_USER_SESSION_KEY</code>的值。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/try-to-bypass-newbeemalllogininterceptor.png" alt="NewBeeMallLoginInterceptor"></p>
+<p>我们再回到拦截器的配置中来，看路径配置是否可能存在配置不当的情况，漏掉部分需要登录限制</p>
+<img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/newbeemalllogininterceprot-config.png" alt="image-20200504150230909" style="zoom: 43%;">
+
+<p>在Controller中一番搜寻，发现在<code>/src/main/java/ltd/newbee/mall/controller/mall/PersonalController.java:48</code>中，其中只有<code>/personal</code>和<code>/personal/updateInfo</code>设置了规则，而<code>/personal/addresses</code>未被配置拦截路径。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/personal/addresses"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">addressesPage</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"mall/addresses"</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>访问发现该路径确实没有经过登录拦截器，但是作者没有配置<code>mall/addresses</code>模版，也就是说这里是个未开发的功能，尚未构成漏洞。但仍存在隐患，若日后开发新功能时没有及时修改拦截器中的配置，就会导致未授权访问。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-bypass-newbellmalllogininterceptor.png" alt="burp-request-bypass-newbellmalllogininterceptor"></p>
+<h1 id="越权"><a href="#越权" class="headerlink" title="越权"></a>越权</h1><h2 id="垂直越权"><a href="#垂直越权" class="headerlink" title="垂直越权"></a>垂直越权</h2><p>由于系统没有垂直权限的概念，管理员和普通用户都是独立存在的，管理员进行管理工作，普通用户进行购物、个人信息编辑操作。</p>
+<p>这里简单说一下审计思路，审计时弄明白是基于角色还是基于资源做的权限控制还是根本就没做权限控制。再根据其配置内容去找是否存在错误配置的权限，和找权限控制本身是否存在绕过的可能性。</p>
+<h2 id="水平越权"><a href="#水平越权" class="headerlink" title="水平越权"></a>水平越权</h2><p>在开发时有一个原则是尽量从session中获取用户ID进行查询，这样会避免越权查询漏洞产生。</p>
+<p>我们以查看「我的订单」为例，其中<code>user</code>对象直接从<code>httpSession</code>中获取，再将<code>user</code>中的<code>userId</code>传入后续步骤，最后在数据库中查询。这样一个过程用户侧是没法控制<code>userId</code>，使得该次数据库查询不可能越权。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/OrderController.java:47</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/OrderController-orderListPage.png" alt="OrderController-orderListPage"></p>
+<p>我们再来看个人信息修改，此时对数据库进行查询的是<code>mallUser.getUserId()</code>，而<code>mallUser</code>是从用户侧获取的，所以该处存在越权修改个人信息漏洞。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/PersonalController.java:114</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/PersonController-updateInfo.png" alt="PersonController-updateInfo"></p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallUserServiceImpl.java:73</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallUserServiceImpl-updateUserInfo.png" alt="NewBeeMallUserServiceImpl-updateUserInfo"></p>
+<p>修改<code>userId</code>的值即可更改任意用户的个人信息。</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-updateInfo.png" alt="burp-request-updateInfo"></p>
+<p>修改方案就是将<code>userId</code>从<code>httpSession</code>中获取，而不是不通过用户可控的<code>mallUser.getUserId</code>获取。</p>
+<p>以上是查询信息一对一的情况，一对一可以直接通过session获取，而一对多的查询不行，比如查询某订单的情况，一名用户可能存在多个订单，此时就不能仅从session中获取id进行查询，订单号只能通过用户传入。</p>
+<p>以订单查询为例，<code>OrderController.java</code>中第36行，有一行从Session中获取user的语句，第37行，存在<code>user.getUserId()</code>，是否说明此处会带入session获取到的<code>userId</code>一同查询呢？</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/OrderController-orderDetailPage.png" alt="OrderController-orderDetailPage"></p>
+<p>我们继续跟入<code>newBeeMallOrderService.getOrderDetailByOrderNo()</code>，发现它直接使用orderNo进行查询，并没有代入从session中获取的<code>userId</code>，这真是欺骗感情啊！</p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallOrderServiceImpl.java</code></p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallOrderServiceImpl-getOrderDetailByOrderNo.png" alt="NewBeeMallOrderServiceImpl-getOrderDetailByOrderNo"></p>
+<p>毫无疑问，此处仅通过用户传入的<code>orderNo</code>获取订单信息一定存在越权查询。</p>
+<p>我们新建一个test1用户，查看「我的订单」，空空如也</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/new-user-test1.png" alt="new-user-test1"></p>
+<p>通过test1访问他人的订单号，发现成功访问，可以看到订单细节</p>
+<p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/query-others-order-detail.png" alt="query-others-order-detail"></p>
+<h3 id="修复方案"><a href="#修复方案" class="headerlink" title="修复方案"></a>修复方案</h3><p>表结构在设计之初应考虑订单和用户对应的关系，案例项目数据库订单表结构部分信息如下：</p>
+<table>
+<thead>
+<tr>
+<th>order_id</th>
+<th>order_no</th>
+<th>user_id</th>
+<th>total_price</th>
+<th>pay_status</th>
+<th>pay_type</th>
+<th>extra_info</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>15688187285093508</td>
+<td>1</td>
+<td>2492</td>
+<td>1</td>
+<td>2</td>
+<td></td>
+</tr>
+<tr>
+<td>2</td>
+<td>15885800076852966</td>
+<td>10</td>
+<td>2245</td>
+<td>1</td>
+<td>1</td>
+<td></td>
+</tr>
+</tbody></table>
+<p>可以看到存在其中<code>order_no</code>和<code>user_id</code>存在对应关系，所以将<code>orderNo</code>和从session中获取的<code>userId</code>同时查询可解决越权问题。</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * forom tb_newbee_mall_order <span class="keyword">where</span> order_no = <span class="comment">#&#123;orderNo,jdbcType=VARCHAR&#125; and user_id = #&#123;userId,jdbcType=LONG&#125; and is_deleted=0 limit 1</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://blog.csdn.net/icarusliu/article/details/78809790" target="_blank" rel="noopener">https://blog.csdn.net/icarusliu/article/details/78809790</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计六 - CSRF</title>
+    <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
+    <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
+<a id="more"></a>
+
+<p>案例项目中不存在Referer校验和CSRF token，所以网站肯定存在多处CSRF。除了修改密码处需要的原密码攻击者无法知晓外，其他功能点均存在CSRF。</p>
+<p>我们以添加购物车功能为例，请求内容为下，没有任何token值</p>
+<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/add-to-shop-cart.png" alt="image-20200504200617041" style="zoom:43%;">
+
+
+
+<p>由于是json格式的请求，不能直接使用burp Generate CSRF PoC，因为burp生成的PoC无法伪造Content-Type。burp生成的CSRF PoC请求内容如下，可以看到<code>Content-Type: text/plain</code>，并且post数据多出一个等号。</p>
+<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/csrf-request-add-shop-cart.png" alt="image-20200504201229995" style="zoom: 43%;">
+
+<p>使用fetch跨域请求会先发送一个options请求，fetch设置no-cors模式又无法更改Content-Type。还有一种利用方法是使用flash+307跳转，这种方法只适用于老旧浏览器。</p>
+<p>不过我们可以利用之前审计出来的漏洞组合起来利用。</p>
+<p>首先我们通过未授权访问商品<a href="http://localhost:8089/index/..;/admin/goods/edit/10896" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin/goods/edit/10896</a></p>
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/edit-goods.png" alt="edit-goods"></p>
+<p>将商品详细信息改为，该<code>&lt;script&gt;</code>会发送添加商品10986到购物车的操作</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">"text/javascript"</span> <span class="attr">charset</span>=<span class="string">"utf-8"</span>&gt;</span></span><br><span class="line"><span class="actionscript">    <span class="keyword">const</span> authUrl = `http:<span class="comment">//localhost:8089/shop-cart`;</span></span></span><br><span class="line">    fetch(</span><br><span class="line">        authUrl,</span><br><span class="line">        &#123;</span><br><span class="line"><span class="actionscript">            method: <span class="string">'POST'</span>,</span></span><br><span class="line"><span class="actionscript">            credentials: <span class="string">'include'</span>,</span></span><br><span class="line">            headers: &#123;</span><br><span class="line"><span class="actionscript">                <span class="string">'Content-Type'</span>: <span class="string">'application/json'</span>,</span></span><br><span class="line"><span class="actionscript">                <span class="string">'X-Requested-With'</span>: <span class="string">'XMLHttpRequest'</span></span></span><br><span class="line">            &#125;,</span><br><span class="line"><span class="actionscript">            body: <span class="string">'&#123;"goodsId":10896,"goodsCount":1&#125;'</span>,</span></span><br><span class="line">        &#125;</span><br><span class="line"><span class="javascript">    ).catch(<span class="function"><span class="params">err</span> =&gt;</span> &#123;</span></span><br><span class="line"><span class="actionscript">        <span class="keyword">throw</span> err;</span></span><br><span class="line"><span class="javascript">    &#125;).then(<span class="function"><span class="params">()</span> =&gt;</span> &#123;</span></span><br><span class="line">    &#125;);</span><br><span class="line"><span class="tag">&lt;/<span class="name">script</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p>因为富文本编辑器会将我们输入的内容编码，在保存过程中抓包，修改goodsDetailContent参数为XSS payload</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">\</span>"<span class="attr">text</span>/<span class="attr">javascript</span>\" <span class="attr">charset</span>=<span class="string">\</span>"<span class="attr">utf-8</span>\"&gt;</span><span class="javascript"><span class="keyword">const</span> authUrl=<span class="string">`http://localhost:8089/shop-cart`</span>;fetch(authUrl,&#123;<span class="attr">method</span>:<span class="string">'POST'</span>,<span class="attr">credentials</span>:<span class="string">'include'</span>,<span class="attr">headers</span>:&#123;<span class="string">'Content-Type'</span>:<span class="string">'application/json'</span>,<span class="string">'X-Requested-With'</span>:<span class="string">'XMLHttpRequest'</span>&#125;,<span class="attr">body</span>:<span class="string">'&#123;\"goodsId\":10896,\"goodsCount\":1&#125;'</span>&#125;).catch(<span class="function"><span class="params">err</span>=&gt;</span>&#123;<span class="keyword">throw</span> err;&#125;).then(<span class="function"><span class="params">()</span>=&gt;</span>&#123;&#125;);</span><span class="tag">&lt;/<span class="name">script</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/update-xss-in-goods.png" alt="update-xss-in-goods"></p>
+<p>每当用户访问10896这个商品时都会触发XSS，然后XSS执行CSRF请求，将该商品添加到购物车中</p>
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/xss-combine-csrf.png" alt="xss-combine-csrf"></p>
+<p>查看购物车，发现该商品在未经人工操作的情况下被进入购物车。我们甚至还可以再添加结算和下订单操作，直接等待用户付款。</p>
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/auto-add-goods-in-shop-cart.png" alt="auto-add-goods-in-shop-cart"></p>
+<h2 id="修复"><a href="#修复" class="headerlink" title="修复"></a>修复</h2><h3 id="校验Referer"><a href="#校验Referer" class="headerlink" title="校验Referer"></a>校验Referer</h3><p>Spring中可以使用interceptor来校验Referer，以下代码为例：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">RefererInterceptor</span> <span class="keyword">extends</span> <span class="title">HandlerInterceptorAdapter</span> </span>&#123;</span><br><span class="line">    <span class="keyword">private</span> AntPathMatcher matcher = <span class="keyword">new</span> AntPathMatcher();</span><br><span class="line">    <span class="meta">@Autowired</span></span><br><span class="line">    <span class="keyword">private</span> RefererProperties properties;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">preHandle</span><span class="params">(HttpServletRequest req, HttpServletResponse resp, Object handler)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">        String referer = req.getHeader(<span class="string">"referer"</span>);</span><br><span class="line">        String host = req.getServerName();</span><br><span class="line">        <span class="keyword">if</span> (<span class="string">"POST"</span>.equals(req.getMethod())) &#123;  <span class="comment">// 只验证POST请求</span></span><br><span class="line">            <span class="keyword">if</span> (referer == <span class="keyword">null</span>) &#123; <span class="comment">//若referer为空</span></span><br><span class="line">                resp.setStatus(HttpServletResponse.SC_FORBIDDEN); <span class="comment">//返回403</span></span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">            &#125; </span><br><span class="line">            java.net.URL url = <span class="keyword">null</span>;</span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                url = <span class="keyword">new</span> java.net.URL(referer);</span><br><span class="line">            &#125; <span class="keyword">catch</span> (MalformedURLException e) &#123;</span><br><span class="line">                resp.setStatus(HttpServletResponse.SC_FORBIDDEN); <span class="comment">// URL解析异常，也置为403</span></span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">if</span> (!host.equals(url.getHost())) &#123;  <span class="comment">// 首先判断请求域名和referer域名是否相同</span></span><br><span class="line">                <span class="keyword">if</span> (properties.getRefererDomain() != <span class="keyword">null</span>) &#123;  <span class="comment">// 如果不等，判断是否在白名单中</span></span><br><span class="line">                    <span class="keyword">for</span> (String s : properties.getRefererDomain()) &#123;</span><br><span class="line">                        <span class="keyword">if</span> (s.equals(url.getHost())) &#123;</span><br><span class="line">                            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">                        &#125;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">           &#125;</span><br><span class="line">        &#125;</span><br><span class="line">      <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">   &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h3 id="给cookie设置SameSite属性"><a href="#给cookie设置SameSite属性" class="headerlink" title="给cookie设置SameSite属性"></a>给cookie设置SameSite属性</h3><p>关于SameSite属性可参考<a href="https://mp.weixin.qq.com/s/YqSxIvbgq1DkAlUL5rBtqA" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/YqSxIvbgq1DkAlUL5rBtqA</a></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">CookieServiceInterceptor</span> <span class="keyword">extends</span> <span class="title">HandlerInterceptorAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">preHandle</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">   HttpServletRequest request, HttpServletResponse response, Object handler)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">   <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">postHandle</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">   HttpServletRequest request, HttpServletResponse response, Object handler, </span></span></span><br><span class="line"><span class="function"><span class="params">   ModelAndView modelAndView)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    <span class="comment">//检查返回中是否存在"set-cookie"，若存在，则给其加上"SameSite"属性</span></span><br><span class="line">    Collection&lt;String&gt; headers = response.getHeaders(HttpHeaders.SET_COOKIE);</span><br><span class="line">    <span class="keyword">boolean</span> firstHeader = <span class="keyword">true</span>;</span><br><span class="line">    <span class="keyword">for</span> (String header : headers) &#123; <span class="comment">// 可能存在多个"Set-Cookie"属性，故采用for循环</span></span><br><span class="line">        <span class="keyword">if</span> (firstHeader) &#123;</span><br><span class="line">            response.setHeader(HttpHeaders.SET_COOKIE, String.format(<span class="string">"%s; %s"</span>,  header, <span class="string">"SameSite=strict"</span>)); <span class="comment">//可根据业务设置strict或者lax</span></span><br><span class="line">            firstHeader = <span class="keyword">false</span>;</span><br><span class="line">            <span class="keyword">continue</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        response.addHeader(HttpHeaders.SET_COOKIE, String.format(<span class="string">"%s; %s"</span>,  header, <span class="string">"SameSite=strict"</span>));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">afterCompletion</span><span class="params">(HttpServletRequest request, HttpServletResponse response, </span></span></span><br><span class="line"><span class="function"><span class="params">   Object handler, Exception exception)</span> <span class="keyword">throws</span> Exception </span>&#123;&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h3 id="设置CSRF-token"><a href="#设置CSRF-token" class="headerlink" title="设置CSRF token"></a>设置CSRF token</h3><p>CSRF token生成可以借助Spring Security框架，默认提供CSRF防护。Spring Security的CSRF防护是基于Filter来实现的，Spring Security提供多种保存token的策略，既可以保存在cookie中，也可以保存在session中，保存方法可以手动指定。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">doFilterInternal</span><span class="params">(HttpServletRequest request,</span></span></span><br><span class="line"><span class="function"><span class="params">            HttpServletResponse response, FilterChain filterChain)</span></span></span><br><span class="line"><span class="function">                    <span class="keyword">throws</span> ServletException, IOException </span>&#123;</span><br><span class="line">        request.setAttribute(HttpServletResponse<span class="class">.<span class="keyword">class</span>.<span class="title">getName</span>(), <span class="title">response</span>)</span>;</span><br><span class="line">　　　　 <span class="comment">// 通过tokenRepository从request中获取csrf token</span></span><br><span class="line">        CsrfToken csrfToken = <span class="keyword">this</span>.tokenRepository.loadToken(request);</span><br><span class="line">        <span class="keyword">final</span> <span class="keyword">boolean</span> missingToken = csrfToken == <span class="keyword">null</span>;</span><br><span class="line">　　　　 <span class="comment">// 如果未获取到token则新生成token并保存</span></span><br><span class="line">        <span class="keyword">if</span> (missingToken) &#123;</span><br><span class="line">            csrfToken = <span class="keyword">this</span>.tokenRepository.generateToken(request);</span><br><span class="line">            <span class="keyword">this</span>.tokenRepository.saveToken(csrfToken, request, response);</span><br><span class="line">        &#125;</span><br><span class="line">        request.setAttribute(CsrfToken<span class="class">.<span class="keyword">class</span>.<span class="title">getName</span>(), <span class="title">csrfToken</span>)</span>;</span><br><span class="line">        request.setAttribute(csrfToken.getParameterName(), csrfToken);</span><br><span class="line">　　　　　<span class="comment">// 判断是否需要进行csrf token校验</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="keyword">this</span>.requireCsrfProtectionMatcher.matches(request)) &#123;</span><br><span class="line">            filterChain.doFilter(request, response);</span><br><span class="line">            <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br><span class="line">　　　　 <span class="comment">// 获取前端传过来的实际token</span></span><br><span class="line">        String actualToken = request.getHeader(csrfToken.getHeaderName());</span><br><span class="line">        <span class="keyword">if</span> (actualToken == <span class="keyword">null</span>) &#123;</span><br><span class="line">            actualToken = request.getParameter(csrfToken.getParameterName());</span><br><span class="line">        &#125;</span><br><span class="line">　　　　 <span class="comment">// 校验两个token是否相等</span></span><br><span class="line">        <span class="keyword">if</span> (!csrfToken.getToken().equals(actualToken)) &#123;</span><br><span class="line">            <span class="keyword">if</span> (<span class="keyword">this</span>.logger.isDebugEnabled()) &#123;</span><br><span class="line">                <span class="keyword">this</span>.logger.debug(<span class="string">"Invalid CSRF token found for "</span></span><br><span class="line">                        + UrlUtils.buildFullRequestUrl(request));</span><br><span class="line">            &#125;</span><br><span class="line">　　　　　　  <span class="comment">// 如果是token缺失导致，则抛出MissingCsrfTokenException异常</span></span><br><span class="line">            <span class="keyword">if</span> (missingToken) &#123;</span><br><span class="line">                <span class="keyword">this</span>.accessDeniedHandler.handle(request, response,</span><br><span class="line">                        <span class="keyword">new</span> MissingCsrfTokenException(actualToken));</span><br><span class="line">            &#125;</span><br><span class="line">　　　　　　  <span class="comment">// 如果不是同一个token则抛出InvalidCsrfTokenException异常</span></span><br><span class="line">            <span class="keyword">else</span> &#123;</span><br><span class="line">                <span class="keyword">this</span>.accessDeniedHandler.handle(request, response,</span><br><span class="line">                        <span class="keyword">new</span> InvalidCsrfTokenException(csrfToken, actualToken));</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br><span class="line">　　　　　<span class="comment">// 执行下一个过滤器</span></span><br><span class="line">        filterChain.doFilter(request, response);</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>注意，不管是校验Referer还是设置SameSite，都不能防止同站发起的CSRF，比如本文所举的例子就没法防范。XSS也可能从页面中获取CSRF token再进行攻击，这些防范方法都是提高攻击者的攻击难度，而不是完全消灭CSRF。真正重要的功能一定需要短信验证码或者密码之类的仅当前用户知道的参数才能进行操作，比如支付转账等。</p>
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://docs.spring.io/spring-security/site/docs/current/reference/html5/#csrf-protection" target="_blank" rel="noopener">https://docs.spring.io/spring-security/site/docs/current/reference/html5/#csrf-protection</a></p>
+<p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
+<p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
+<p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
+    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
+    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+<a id="more"></a>
+
+<p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
+<h3 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h3><p>随便添加一件物品到购物车，提交订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
+<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
+<p>在管理页面确认该订单当前状态是待支付</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
+<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
+<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
+<p>再次查看订单，已经交易成功</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
+<p>在管理页面查看该订单，证明交易成功。</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
+]]></content>
+  </entry>
+  <entry>
     <title>Spring ModelAndView 注入</title>
     <url>/2020/06/13/Spring_ModelAndView_Injection/</url>
     <content><![CDATA[<h2 id="1-介绍"><a href="#1-介绍" class="headerlink" title="1. 介绍"></a>1. 介绍</h2><p>在代码审计时发现以下功能点，Checkmarx显示存在<code>Spring ModelView Injection</code>，是由<code>ModelAndView</code>中的参数可被用户控制导致。这个漏洞的历史还是比较久的，但之前没有碰到过，于是就自己搭建环境调试一番，动手学习一下利用方法。</p>
@@ -223,82 +801,6 @@
 </ol>
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf" target="_blank" rel="noopener">https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf</a></p>
 <p><a href="http://johnis.online/old/2018/09/18/spring-view-injection/" target="_blank" rel="noopener">http://johnis.online/old/2018/09/18/spring-view-injection/</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
-    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
-    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
-<a id="more"></a>
-
-<h2 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h2><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
-<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
-<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">        <span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">        <span class="comment">// by Spring MVC</span></span><br><span class="line">        <span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h2><blockquote>
-<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
-<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
-</blockquote>
-<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
-<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="image-20200703202336573" style="zoom:45%;">
-
-
-
-<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="image-20200703201319193" style="zoom:45%;">
-
-
-
-<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="image-20200703201419975" style="zoom:45%;">
-
-
-
-<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="image-20200703202141359" style="zoom:45%;">
-
-
-
-<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
-<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="image-20200703225103246" style="zoom:45%;">
-
-
-
-<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="image-20200703223208316" style="zoom:45%;">
-
-
-
-<p><code>load</code>方法如下</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="image-20200703224718336" style="zoom:45%;">
-
-<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="image-20200703223136604" style="zoom:45%;">
-
-
-
-<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
-<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="image-20200703225853171" style="zoom:45%;">
-
-
-
-<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
-<h2 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h2><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a></p>
-<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
-<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
-<p>测试之后发现同样会返回文件内容。</p>
-<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a></p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
-<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
 ]]></content>
   </entry>
 </search>

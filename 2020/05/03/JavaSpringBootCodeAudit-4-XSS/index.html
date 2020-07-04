@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Java SpringBoot框架代码审计四 - XSS |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-JavaSpringBootCodeAudit-4-XSS" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Java SpringBoot框架代码审计四 - XSS
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" class="article-date">
+  <time datetime="2020-05-02T16:00:00.000Z" itemprop="datePublished">2020-05-03</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
+<a id="more"></a>
+
+<p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
+<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
+<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
+<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
+<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="image-20200503171039156" style="zoom:50%;">
+
+
+
+<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
+<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
+<p>可以判断该应用程序中很可能存在XSS。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="image-20200505222936005" style="zoom:33%;">
+
+
+
+<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
+<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
+<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
+<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
+<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
+<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="image-20200503171058618" style="zoom:50%;">
+
+<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
+<ol>
+<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
+</ol>
+<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
+<ol start="2">
+<li>找不经过thymeleaf的输出</li>
+</ol>
+<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
+<p>发现触发我们输入的XSS payload</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
+<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
+<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
+<h2 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h2><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
+<ol>
+<li>对HTML做充分转义</li>
+</ol>
+<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如<a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
+<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
+<p>修复过程中得结合考虑实际的业务场景。</p>
+<ol start="2">
+<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
+</ol>
+<h2 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h2><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
+<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
+<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
+<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
+<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
+<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" data-id="ckc7fhcnv00065ajc1e8dfnon" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Java SpringBoot框架代码审计五 - 越权
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Java SpringBoot框架代码审计三 - SQL注入</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>
