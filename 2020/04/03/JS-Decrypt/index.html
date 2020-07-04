@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    通过JS解开加密传输 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-JS-Decrypt" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      通过JS解开加密传输
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/04/03/JS-Decrypt/" class="article-date">
+  <time datetime="2020-04-02T16:00:00.000Z" itemprop="datePublished">2020-04-03</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
+<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
+</blockquote>
+<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
+<p>某app的h5页面显示的链接是<a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
+<a id="more"></a>
+
+<p>实际上在burp中抓包它的请求链接是<a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
+<p>通过在JS中找加密方式，网站的js很少，随便找找就发现在index.js中存在加解密。</p>
+<p>传输request body采用AES加密，加密方式是<code>CBC Pkcs7</code></p>
+<p><code>o: ^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
+<p><code>iv: 0108489312380708</code></p>
+<p>AES加解密的过程就是这样，还是比较清晰的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
+<p>下图是调试过程，密钥就直接拿到了：</p>
+<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
+<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
+<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
+<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
+<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
+<p>修改完成之后进行AES加密，我使用的是<a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
+<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
+<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
+<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
+<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
+<p>通过调试可以知道，D是：（去除了\）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
+<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
+<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
+<p>然后复制n和iv的值</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
+<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
+<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
+<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
+<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/04/03/JS-Decrypt/" data-id="ckc7s644i0002e1jc9rv73l9h" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Java SpringBoot框架代码审计一 - 前期准备
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">使用Packet Filter将Mac热点中的流量转发到Burp</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>
