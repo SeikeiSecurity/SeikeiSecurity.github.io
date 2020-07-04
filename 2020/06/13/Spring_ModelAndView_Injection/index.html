@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Spring ModelAndView 注入 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-Spring_ModelAndView_Injection" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Spring ModelAndView 注入
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/06/13/Spring_ModelAndView_Injection/" class="article-date">
+  <time datetime="2020-06-12T16:00:00.000Z" itemprop="datePublished">2020-06-13</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <h2 id="1-介绍"><a href="#1-介绍" class="headerlink" title="1. 介绍"></a>1. 介绍</h2><p>在代码审计时发现以下功能点，Checkmarx显示存在<code>Spring ModelView Injection</code>，是由<code>ModelAndView</code>中的参数可被用户控制导致。这个漏洞的历史还是比较久的，但之前没有碰到过，于是就自己搭建环境调试一番，动手学习一下利用方法。</p>
+<a id="more"></a>
+
+<p>源码如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(HttpServletRequest req, HttpServletResponse req)</span> </span>&#123;</span><br><span class="line">	String url = <span class="keyword">this</span>.getParam(req, <span class="string">"url"</span>);</span><br><span class="line">	HttpSession session = req.getSession();</span><br><span class="line">	session.setAttribute(<span class="string">"menuitem.url"</span>,url);</span><br><span class="line">	String nextUrl = <span class="string">"xxx"</span> + url;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(nextUrl));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="2-实践"><a href="#2-实践" class="headerlink" title="2. 实践"></a>2. 实践</h2><p>首先自己搭建一下测试环境，在本地用此代码Demo进行漏洞验证，Springframework版本为<code>5.0.0.RELEASE</code>。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(nextUrl);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>ModelAndView</code>是Spring中的一个模型视图对象，作用是设置跳转的视图地址或把controller方法中处理的数据传到jsp页面。</p>
+<p><code>ModelAndView</code>有两种使用形式：</p>
+<ol>
+<li>forward:/view</li>
+<li>redirect:/view</li>
+</ol>
+<p>若<code>ModelAndView(view)</code>中的<code>view</code>参数可被用户控制，可能导致文件被读取的问题。</p>
+<p>若直接访问<a href="http://localhost:8089/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/WEB-INF/web.xml</a> ，返回404</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/request_web_xml.png" alt="request_web.xml"></p>
+<p>而使用<code>ModelAndView</code>注入，访问<a href="http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml</a> ，就可以看到<code>web.xml</code>的内容</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/forward_web_xml.png" alt="forward_web.xml"></p>
+<p>但是仅能读取web目录下的文件，不能读取系统其他文件。尝试读取web目录外的文件时产生如下报错：<code>Check that the corresponding file exists within your web application archive!</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/500_error.png" alt="500_error"></p>
+<p>除了文件读取，当然也能进行一些权限认证的绕过，这需要考虑具体的代码场景，不一定通用。</p>
+<p>不过在实际代码中多了<code>RedirectView()</code>方法变成以下情形：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(url));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>RedirectView</code>会触发302跳转的结果，等效于使用<code>url=redirect:/WEB-INF/web.xml</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirectview_web_xml.png" alt="redirectview_web.xml"></p>
+<p>虽然存在<code>RedirectView</code>不能直接读取文件，但能利用302跳转这一特性，实现URL重定向</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/open_redirect.png" alt="open_redirect"></p>
+<p>302跳转处回显了我们的输入，那么能进行CRLF注入吗？</p>
+<p>答案是不能，Spring会将\r\n进行处理，转换成空格。在下图的请求中可以看到<code>%0d</code>和<code>%0a</code>被转换成<code>\x20</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_crlf.png" alt="CRLF"></p>
+<h2 id="3-分析"><a href="#3-分析" class="headerlink" title="3. 分析"></a>3. 分析</h2><p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:468</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="comment">// If this resolver is not supposed to handle the given view,</span></span><br><span class="line">	<span class="comment">// return null to pass on to the next resolver in the chain.</span></span><br><span class="line">	<span class="keyword">if</span> (!canHandle(viewName, locale)) &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "redirect:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(REDIRECT_URL_PREFIX)) &#123;</span><br><span class="line">		String redirectUrl = viewName.substring(REDIRECT_URL_PREFIX.length());</span><br><span class="line">		RedirectView view = <span class="keyword">new</span> RedirectView(redirectUrl,</span><br><span class="line">			isRedirectContextRelative(), isRedirectHttp10Compatible());</span><br><span class="line">		String[] hosts = getRedirectHosts();</span><br><span class="line">		<span class="keyword">if</span> (hosts != <span class="keyword">null</span>) &#123;</span><br><span class="line">			view.setHosts(hosts);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(REDIRECT_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "forward:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(FORWARD_URL_PREFIX)) &#123;</span><br><span class="line">		String forwardUrl = viewName.substring(FORWARD_URL_PREFIX.length());</span><br><span class="line">		InternalResourceView view = <span class="keyword">new</span> InternalResourceView(forwardUrl);</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(FORWARD_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Else fall back to superclass implementation: calling loadView.</span></span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">super</span>.createView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到，存在三种<code>viewName</code>的处理方法：</p>
+<ol>
+<li>以<code>redirect:</code>为前缀</li>
+<li>以<code>forward:</code>为前缀</li>
+<li>没有前缀</li>
+</ol>
+<h3 id="3-1-以redirect为前缀"><a href="#3-1-以redirect为前缀" class="headerlink" title="3.1 以redirect为前缀"></a>3.1 以redirect为前缀</h3><p>新建一个<code>RedirectView</code>对象，表现结果是根据视图名进行302跳转，返回包中的<code>Location</code>头为<code>redirectUrl</code>变量。</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_web_xml.png" alt="redirect_web.xml"></p>
+<h3 id="3-2-以forward为前缀"><a href="#3-2-以forward为前缀" class="headerlink" title="3.2 以forward为前缀"></a>3.2 以forward为前缀</h3><p>新建一个<code>InternalResourceView</code>对象，根据视图名到指定的位置获取视图模板</p>
+<p>在spring的配置文件中，会存在如下的视图解析器配置</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/"</span>/&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>InternalResourceView</code>对象会受到该视图解析器配置的影响。</p>
+<p><code>InternalResourceViewResolver</code>会把返回的视图名称都解析为<code>InternalResourceView</code>对象，<code>InternalResourceView</code>会把Controller处理器方法返回的模型属性都存放到对应的<code>request</code>属性中，然后通过<code>RequestDispatcher</code>在服务器端把请求forword重定向到目标URL。比如在<code>InternalResourceViewResolver</code>中定义了<code>prefix=/WEB-INF/</code>，<code>suffix=.jsp</code>，然后请求的Controller处理器方法返回的视图名称为<code>test</code>，那么这个时候<code>InternalResourceViewResolver</code>就会把<code>test</code>解析为一个<code>InternalResourceView</code>对象，先把返回的模型属性都存放到对应的<code>HttpServletRequest</code>属性中，然后利用<code>RequestDispatcher</code>在服务器端把请求forword到<code>/WEB-INF/test.jsp</code>。</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/WEB-INF/"</span>/&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"suffix"</span> <span class="attr">value</span>=<span class="string">".jsp"</span>&gt;</span><span class="tag">&lt;/<span class="name">property</span>&gt;</span>  </span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:549</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> AbstractUrlBasedView <span class="title">buildView</span><span class="params">(String viewName)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	Class&lt;?&gt; viewClass = getViewClass();</span><br><span class="line">	Assert.state(viewClass != <span class="keyword">null</span>, <span class="string">"No view class"</span>);</span><br><span class="line"></span><br><span class="line">	AbstractUrlBasedView view = (AbstractUrlBasedView) BeanUtils.instantiateClass(viewClass);</span><br><span class="line">	view.setUrl(getPrefix() + viewName + getSuffix());</span><br><span class="line">	view.setAttributesMap(getAttributesMap());</span><br><span class="line"></span><br><span class="line">	...</span><br></pre></td></tr></table></figure>
+
+<p><code>view.setUrl(getPrefix() + viewName + getSuffix())</code>会将前缀后缀拼接到<code>view</code>中，会导致可访问的文件有限（此时的前缀后缀是配置文件中的<code>prefix</code>和<code>suffix</code>，不是传入时的<code>forward:</code>）。</p>
+<h3 id="3-3-没有前缀"><a href="#3-3-没有前缀" class="headerlink" title="3.3 没有前缀"></a>3.3 没有前缀</h3><p>则调用<code>super.createView()</code>方法，等效于用户直接访问<code>viewName</code>。</p>
+<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/AbstractCachingViewResolver.java:274</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> loadView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="4-总结"><a href="#4-总结" class="headerlink" title="4. 总结"></a>4. 总结</h2><p><code>Spring ModelView Injection</code>有以下几种利用方式：</p>
+<ol>
+<li>web目录下的文件读取，但存在一定的限制（<code>InternalResourceViewResolver</code>中前后缀的配置）</li>
+<li>权限认证绕过</li>
+<li>重定向</li>
+</ol>
+<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf" target="_blank" rel="noopener">https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf</a></p>
+<p><a href="http://johnis.online/old/2018/09/18/spring-view-injection/" target="_blank" rel="noopener">http://johnis.online/old/2018/09/18/spring-view-injection/</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/06/13/Spring_ModelAndView_Injection/" data-id="ckc7c3cd80002mpjchnz37hiy" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            CVE-2019-3799 Spring Cloud Config目录遍历漏洞
+          
+        </div>
+      </a>
+    
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

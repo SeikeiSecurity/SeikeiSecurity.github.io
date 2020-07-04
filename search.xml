@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  <entry>
+    <title>CVE-2019-3799 Spring Cloud Config目录遍历漏洞</title>
+    <url>/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/</url>
+    <content><![CDATA[<p>官方描述：<a href="https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released" target="_blank" rel="noopener">https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released</a></p>
+<blockquote>
+<p>We have released Spring Cloud Config 2.1.2, 2.0.4, and 1.4.6 to address <a href="https://pivotal.io/security/cve-2019-3799" target="_blank" rel="noopener">CVE-2019-3799: Directory Traversal with spring-cloud-config-server</a>. Please review the information in the CVE report and upgrade immediately.</p>
+</blockquote>
+<p>在<a href="https://github.com/spring-cloud/spring-cloud-config/releases" target="_blank" rel="noopener">release</a>中找到修复前的版本2.1.1代码<a href="https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE用于复现" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE用于复现</a></p>
+<a id="more"></a>
+
+<p>本次更新的代码路径为<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/GenericResourceRepository.java</code>，commit地址为<a href="https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2</a></p>
+<h2 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h2><p>补丁主要是在findOne()方法中增加了传入参数path的判断</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/diff-2.1.1-findOne.png" alt="diff-2.1.1-findOne.png"></p>
+<p><code>isInvalidPath</code>方法用于判断路径中是否存在<code>WEB-INF</code>、<code>META-INF</code>、<code>:/</code>、<code>../</code>，如果存在则返回true，导致<code>if (!isInvalidPath(local))</code>为假。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">isInvalidPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"WEB-INF"</span>) || path.contains(<span class="string">"META-INF"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path with \"WEB-INF\" or \"META-INF\": ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">":/"</span>)) &#123;</span><br><span class="line">        String relativePath = (path.charAt(<span class="number">0</span>) == <span class="string">'/'</span> ? path.substring(<span class="number">1</span>) : path);</span><br><span class="line">        <span class="keyword">if</span> (ResourceUtils.isUrl(relativePath) || relativePath.startsWith(<span class="string">"url:"</span>)) &#123;</span><br><span class="line">            <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">                logger.warn(<span class="string">"Path represents URL or has \"url:\" prefix: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">".."</span>) &amp;&amp; StringUtils.cleanPath(path).contains(<span class="string">"../"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path contains \"../\" after call to StringUtils#cleanPath: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>isInvalidEncodedPath</code>方法用于判断路径中是否存在<code>%</code>，若存在则再进行一次URL解码再调用<code>isInvalidPath</code>方法。</p>
+<p>第二个和第三个if中的<code>processPath</code>方法是将<code>\</code>替换成<code>/</code>，再清除连续重复的<code>/</code>。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidEncodedPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"%"</span>)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Use URLDecoder (vs UriUtils) to preserve potentially decoded UTF-8 chars</span></span><br><span class="line">            String decodedPath = URLDecoder.decode(path, <span class="string">"UTF-8"</span>);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            decodedPath = processPath(decodedPath);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">catch</span> (IllegalArgumentException | UnsupportedEncodingException ex) &#123;</span><br><span class="line">            <span class="comment">// Should never happen...</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h2><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.1.1.RELEASE</code></p>
+</blockquote>
+<p>既然是findOne()方法中增加了路径分析，表明之前未做路径防护可能导致任意文件读取漏洞产生。回溯findOne()方法就能找到漏洞的利用点。查看findOne()方法的调用信息（在方法处右键点击Find Usages），可以看到有12处相关引用，由于限制在path参数，于是主要寻找path参数可控的点。</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/find-findOne-usages.png" alt="find-findOne-usages.png"></p>
+<p>找到<code>src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java</code>中调用了<code>findOne()</code>方法，且path可控。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/&#123;name&#125;/&#123;profile&#125;/&#123;label&#125;/**"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">retrieve</span><span class="params">(@PathVariable String name, @PathVariable String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        @PathVariable String label, ServletWebRequest request,</span></span></span><br><span class="line"><span class="function"><span class="params">        @RequestParam(defaultValue = <span class="string">"true"</span>)</span> <span class="keyword">boolean</span> resolvePlaceholders)</span></span><br><span class="line"><span class="function">        <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    String path = getFilePath(request, name, profile, label);</span><br><span class="line">    <span class="keyword">return</span> retrieve(request, name, profile, label, path, resolvePlaceholders);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">synchronized</span> String <span class="title">retrieve</span><span class="params">(ServletWebRequest request, String name, String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        String label, String path, <span class="keyword">boolean</span> resolvePlaceholders)</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    name = resolveName(name);</span><br><span class="line">    label = resolveLabel(label);</span><br><span class="line">    Resource resource = <span class="keyword">this</span>.resourceRepository.findOne(name, profile, label, path);</span><br><span class="line">    <span class="keyword">if</span> (checkNotModified(request, resource)) &#123;</span><br><span class="line">        <span class="comment">// Content was not modified. Just return.</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// ensure InputStream will be closed to prevent file locks on Windows</span></span><br><span class="line">    <span class="keyword">try</span> (InputStream is = resource.getInputStream()) &#123;</span><br><span class="line">        String text = StreamUtils.copyToString(is, Charset.forName(<span class="string">"UTF-8"</span>));</span><br><span class="line">        <span class="keyword">if</span> (resolvePlaceholders) &#123;</span><br><span class="line">            Environment environment = <span class="keyword">this</span>.environmentRepository.findOne(name,</span><br><span class="line">                    profile, label);</span><br><span class="line">            text = resolvePlaceholders(prepareEnvironment(environment), text);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> text;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>path参数为<code>@RequestMapping(&quot;/{name}/{profile}/{label}/**&quot;)</code>中<code>**</code>的部分，也就是uri第三个标签后的全部内容。注意此处传入的label必须为master，具体原因在CVE-2020-5405中会讲到。</p>
+<p>传入<code>GET /name/profile/master/..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code>时，path参数为<code>..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-retrieve.png" alt="debug-retrieve"></p>
+<p><code>FileUrlResource</code>对象中的<code>relativePath</code>为<code>..%2F..%2F..%2F..%2F..%2F..%2Ftmp%2Ftest.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-FileUrlResource.png" alt="debug-FileUrlResource"></p>
+<p>path解码后的路径，路径回溯正好变成<code>/tmp/test.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-file.png" alt="debug-file"></p>
+<p>findOne()方法执行完成之后，返回Resource对象。Resource是Spring框架中用于访问低级资源的一个抽象接口，常用来读取配置文件。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-return-file.png" alt="image-20200625125743560" style="zoom:43%;">
+
+<p>根据findOne()返回的Resource对象，读取到的文件内容。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-get-text.png" alt="image-20200625124521915" style="zoom:40%;">
+
+
+
+<h2 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h2><p>IDEA导入程序后，先等待maven自动安装依赖。依赖安装完成后，找到spring-cloud-config-server中<code>src/main/java/org/springframework/cloud/config/server/ConfigServerApplication.java</code>，点击<code>ConfigServerApplication</code>类右边的运行，启动程序即可，端口默认为8888，想要修改端口的话可在<code>src/main/resources/configserver.yml</code>中修改。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/run-application.png" alt="image-20200625125942216" style="zoom:40%;">
+
+
+
+<p>程序运行起来之后访问<code>http(s)://ip:port/foo/label/master/..%252f..%252f..%252f..%252fetc%252fpasswd</code>得到以下结果</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/poc-request.png" alt="poc-request"></p>
+<p>不二次编码的效果如下，因为不二次编码传到代码前会自动URL解码一次，变成<code>/foo/label/master/../../../../etc/passwd</code>，等效于直接访问<code>/../etc/passwd</code>，tomcat会把它识别成一个错误的URI，请求不会传到ResourceController中，也就不会进行后续<code>findOne()</code>方法的调用。</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/not-double-encode.png" alt="not-double-encode"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>CVE-2020-5405 Spring Cloud Config目录遍历漏洞绕过</title>
+    <url>/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/</url>
+    <content><![CDATA[<p>该漏洞是CVE-2019-3799的绕过。</p>
+<p>存在漏洞的版本：2.2.x系列：&lt; 2.2.2，2.1.x系列：&lt; 2.1.7</p>
+<a id="more"></a>
+
+<h2 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h2><p>将2.1.6和2.1.7版本进行<a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.1.6.RELEASE...v2.1.7.RELEASE?diff=split" target="_blank" rel="noopener">对比</a>，其中增加了对所有location是否合法的判断。在上一个漏洞（CVE-2019-3799）中仅对<code>path</code>进行了判断。2.1.6版本（左侧）代码第69行将<code>path</code>参数传递给了<code>local</code>变量，两者的值是一样的，在第70行if判断中<code>!isInvalidPath(local) &amp;&amp; !isInvalidEncodedPath(local)</code>中的参数<code>local</code>也就是<code>path</code>。</p>
+<p><img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/diff-2.1.6.png" alt="diff-2.1.6"></p>
+<p><code>isInvalidEncodedLocation</code>和<code>isInvalidEncodedPath</code>一样，都是用于判断路径中是否存在<code>%</code>，若存在则再进行一次URL解码再调用<code>isInvalidPath</code>方法，不同的是，<code>isInvalidEncodedLocation</code>调用的是<code>isInvalidLocation</code>方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidEncodedLocation</span><span class="params">(String location)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (location.contains(<span class="string">"%"</span>)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Use URLDecoder (vs UriUtils) to preserve potentially decoded UTF-8</span></span><br><span class="line">            <span class="comment">// chars</span></span><br><span class="line">            String decodedPath = URLDecoder.decode(location, <span class="string">"UTF-8"</span>);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidLocation(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            decodedPath = processPath(decodedPath);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidLocation(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">catch</span> (IllegalArgumentException | UnsupportedEncodingException ex) &#123;</span><br><span class="line">            <span class="comment">// Should never happen...</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> isInvalidLocation(location);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>isInvalidLocation</code>方法比<code>isInvalidPath</code>简单一些，仅对<code>..</code>进行判断。<code>isInvalidPath</code>方法则判断<code>WEB-INF</code>、<code>META-INF</code>、<code>:/</code>、<code>../</code>多个的字符。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidLocation</span><span class="params">(String location)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">boolean</span> isInvalid = location.contains(<span class="string">".."</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (isInvalid &amp;&amp; logger.isWarnEnabled()) &#123;</span><br><span class="line">        logger.warn(<span class="string">"Location contains \"..\""</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> isInvalid;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h2><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.1.6.RELEASE</code></p>
+</blockquote>
+<p>漏洞利用需要用到<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java</code>中字符替换的操作。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">synchronized</span> String <span class="title">retrieve</span><span class="params">(ServletWebRequest request, String name, String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        String label, String path, <span class="keyword">boolean</span> resolvePlaceholders)</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    name = resolveName(name);</span><br><span class="line">    label = resolveLabel(label);</span><br><span class="line">    Resource resource = <span class="keyword">this</span>.resourceRepository.findOne(name, profile, label, path);</span><br><span class="line">    <span class="keyword">if</span> (checkNotModified(request, resource)) &#123;</span><br><span class="line">        <span class="comment">// Content was not modified. Just return.</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// ensure InputStream will be closed to prevent file locks on Windows</span></span><br><span class="line">    <span class="keyword">try</span> (InputStream is = resource.getInputStream()) &#123;</span><br><span class="line">        String text = StreamUtils.copyToString(is, Charset.forName(<span class="string">"UTF-8"</span>));</span><br><span class="line">        <span class="keyword">if</span> (resolvePlaceholders) &#123;</span><br><span class="line">            Environment environment = <span class="keyword">this</span>.environmentRepository.findOne(name,</span><br><span class="line">                    profile, label);</span><br><span class="line">            text = resolvePlaceholders(prepareEnvironment(environment), text);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> text;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>关注最开始的两行</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">label = resolveLabel(label);</span><br><span class="line">name = resolveName(name);</span><br></pre></td></tr></table></figure>
+
+<p>其中<code>resolveLabel</code>和<code>resolveName</code>方法如下，将<code>(_)</code>替换成<code>/</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> String <span class="title">resolveName</span><span class="params">(String name)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (name != <span class="keyword">null</span> &amp;&amp; name.contains(<span class="string">"(_)"</span>)) &#123;</span><br><span class="line">        <span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">        <span class="comment">// by Spring MVC</span></span><br><span class="line">        name = name.replace(<span class="string">"(_)"</span>, <span class="string">"/"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> name;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">private</span> String <span class="title">resolveLabel</span><span class="params">(String label)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (label != <span class="keyword">null</span> &amp;&amp; label.contains(<span class="string">"(_)"</span>)) &#123;</span><br><span class="line">        <span class="comment">// "(_)" is uncommon in a git branch name, but "/" cannot be matched</span></span><br><span class="line">        <span class="comment">// by Spring MVC</span></span><br><span class="line">        label = label.replace(<span class="string">"(_)"</span>, <span class="string">"/"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> label;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以利用<code>(_)</code>来代替<code>/</code>作为路径分隔符使得<code>@RequestMapping(&quot;/{name}/{profile}/{label}/**&quot;)</code>中<code>{name}</code>和<code>{lable}</code>就能携带路径分隔符和路径回溯符进行任意文件读取。</p>
+<p>如果没有这个替换，在路由分配时就没办法在<code>{name}</code>和<code>{lable}</code>中进行回溯，举个例子：</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&#x2F;abc&#x2F;xyz&#x2F;..&#x2F;..&#x2F;etc&#x2F;passwd  &#x3D;&gt; </span><br><span class="line">name&#x3D;abc   profile&#x3D;xyz   label&#x3D;..   path&#x3D;..&#x2F;etc&#x2F;passwd</span><br><span class="line"></span><br><span class="line">&#x2F;abc&#x2F;xyz&#x2F;..(_)..&#x2F;etc&#x2F;passwd &#x3D;&gt; </span><br><span class="line">name&#x3D;abc   profile&#x3D;xyz   label&#x3D;..(_)..   path&#x3D;etc&#x2F;passwd</span><br></pre></td></tr></table></figure>
+
+
+
+<p>尝试构造请求<code>http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29tmp/test.txt</code>，报500错误</p>
+<p><img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/500-error.png" alt="500-error"></p>
+<p>查看报错信息，提示<code>Branch name ../../../../../../../tmp is not allowed</code></p>
+<p><img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/error-message.png" alt="error-message"></p>
+<p>在checkout处会进行git请求，造成报错</p>
+<p><code>src/main/java/org/springframework/cloud/config/server/environment/JGitEnvironmentRepository.java</code></p>
+<img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/debug-checkout.png" alt="image-20200627164116351" style="zoom:45%;">
+
+
+
+<p>因为在默认配置下，spring cloud config使用git远程读取配置，label表示git的分支，在CVE-2019-3799中label的值为master，master分支存在才能进一步读取文件。若修改想要label的值并成功读取任意文件，需要将配置改成本地才不会进行git checkout。</p>
+<img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/edit-config.png" alt="image-20200627170025953" style="zoom:50%;">
+
+
+
+<p>修改配置成以下配置，即改为读取本地配置，从而能读取本地文件。</p>
+<figure class="highlight yml"><table><tr><td class="code"><pre><span class="line"><span class="attr">info:</span></span><br><span class="line">  <span class="attr">component:</span> <span class="string">Config</span> <span class="string">Server</span></span><br><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">application:</span></span><br><span class="line">    <span class="attr">name:</span> <span class="string">configserver</span></span><br><span class="line">  <span class="attr">autoconfigure.exclude:</span> <span class="string">org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration</span></span><br><span class="line">  <span class="attr">jmx:</span></span><br><span class="line">    <span class="attr">default_domain:</span> <span class="string">cloud.config.server</span></span><br><span class="line">  <span class="attr">cloud:</span></span><br><span class="line">    <span class="attr">config:</span></span><br><span class="line">      <span class="attr">server:</span></span><br><span class="line">        <span class="attr">native:</span></span><br><span class="line">          <span class="attr">search-locations:</span> <span class="string">file:///Users/seikei/spring-cloud-config-2.1.6.RELEASE/spring-cloud-config-server/src/test/resources/test</span></span><br><span class="line">  <span class="attr">profiles:</span></span><br><span class="line">    <span class="attr">active:</span> <span class="string">native</span></span><br><span class="line"></span><br><span class="line"><span class="attr">server:</span></span><br><span class="line">  <span class="attr">port:</span> <span class="number">8889</span></span><br><span class="line"><span class="attr">management:</span></span><br><span class="line">  <span class="attr">context_path:</span> <span class="string">/admin</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p>再次调试，此时locations[1]的值为<code>file:///Users/seikei/Records/Java/spring-cloud-config-2.1.6.RELEASE/spring-cloud-config-server/src/test/resources/test../../../../../../../../../../../tmp/</code>，路径回溯之后正好就是<code>file:/tmp/test.txt</code></p>
+<img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/debug-return-file.png" alt="image-20200630191641314" style="zoom:45%;">
+
+
+
+<p>⚠️：若<code>search-locations</code>使用的是相对路径，比如<code>search-locations: file:./src/test/resources/test</code>，则需要在路径前添加<code>%252f</code>，因为相对路径拼接label再回溯之后会变成<code>file:tmp/test/txt</code>导致无法读取文件。（当然绝对路径多添加一个<code>%252f</code>也能正常访问，在测试时多添加一个<code>%252f</code>能提升PoC的成功率）</p>
+<img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/debug-relative-path.png" alt="image-20200630191854205" style="zoom:45%;">
+
+
+
+<p>加上<code>%252f</code>之后就变成了<code>file:%2ftmp/test.txt</code>，在file协议读取文件时会再次URL解码变成<code>file:/tmp/test.txt</code>成功读取文件</p>
+<img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/debug-add-slash.png" alt="image-20200630192052973" style="zoom:45%;">
+
+
+
+
+
+<p>注：v2.2.0.RELEASE以上无法读取无后缀的文件，在ResourceController中添加了一行获取后缀的代码，若传入无后缀的文件会产生500报错。</p>
+<p><a href="https://github.com/spring-cloud/spring-cloud-config/blob/v2.2.0.RELEASE/spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java#L148" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/blob/v2.2.0.RELEASE/spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java#L148</a></p>
+<img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/notice-ext.png" alt="image-20200627190652334" style="zoom:45%;">
+
+
+
+<h2 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h2><p>通用的PoC，绝对路径和相对路径都能使用：<a href="http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%252ftmp/test.txt" target="_blank" rel="noopener">http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%252ftmp/test.txt</a></p>
+<p><img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/poc-request.png" alt="poc-request"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Spring ModelAndView 注入</title>
+    <url>/2020/06/13/Spring_ModelAndView_Injection/</url>
+    <content><![CDATA[<h2 id="1-介绍"><a href="#1-介绍" class="headerlink" title="1. 介绍"></a>1. 介绍</h2><p>在代码审计时发现以下功能点，Checkmarx显示存在<code>Spring ModelView Injection</code>，是由<code>ModelAndView</code>中的参数可被用户控制导致。这个漏洞的历史还是比较久的，但之前没有碰到过，于是就自己搭建环境调试一番，动手学习一下利用方法。</p>
+<a id="more"></a>
+
+<p>源码如下：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(HttpServletRequest req, HttpServletResponse req)</span> </span>&#123;</span><br><span class="line">	String url = <span class="keyword">this</span>.getParam(req, <span class="string">"url"</span>);</span><br><span class="line">	HttpSession session = req.getSession();</span><br><span class="line">	session.setAttribute(<span class="string">"menuitem.url"</span>,url);</span><br><span class="line">	String nextUrl = <span class="string">"xxx"</span> + url;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(nextUrl));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="2-实践"><a href="#2-实践" class="headerlink" title="2. 实践"></a>2. 实践</h2><p>首先自己搭建一下测试环境，在本地用此代码Demo进行漏洞验证，Springframework版本为<code>5.0.0.RELEASE</code>。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(nextUrl);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>ModelAndView</code>是Spring中的一个模型视图对象，作用是设置跳转的视图地址或把controller方法中处理的数据传到jsp页面。</p>
+<p><code>ModelAndView</code>有两种使用形式：</p>
+<ol>
+<li>forward:/view</li>
+<li>redirect:/view</li>
+</ol>
+<p>若<code>ModelAndView(view)</code>中的<code>view</code>参数可被用户控制，可能导致文件被读取的问题。</p>
+<p>若直接访问<a href="http://localhost:8089/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/WEB-INF/web.xml</a> ，返回404</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/request_web_xml.png" alt="request_web.xml"></p>
+<p>而使用<code>ModelAndView</code>注入，访问<a href="http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml</a> ，就可以看到<code>web.xml</code>的内容</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/forward_web_xml.png" alt="forward_web.xml"></p>
+<p>但是仅能读取web目录下的文件，不能读取系统其他文件。尝试读取web目录外的文件时产生如下报错：<code>Check that the corresponding file exists within your web application archive!</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/500_error.png" alt="500_error"></p>
+<p>除了文件读取，当然也能进行一些权限认证的绕过，这需要考虑具体的代码场景，不一定通用。</p>
+<p>不过在实际代码中多了<code>RedirectView()</code>方法变成以下情形：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(url));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>RedirectView</code>会触发302跳转的结果，等效于使用<code>url=redirect:/WEB-INF/web.xml</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirectview_web_xml.png" alt="redirectview_web.xml"></p>
+<p>虽然存在<code>RedirectView</code>不能直接读取文件，但能利用302跳转这一特性，实现URL重定向</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/open_redirect.png" alt="open_redirect"></p>
+<p>302跳转处回显了我们的输入，那么能进行CRLF注入吗？</p>
+<p>答案是不能，Spring会将\r\n进行处理，转换成空格。在下图的请求中可以看到<code>%0d</code>和<code>%0a</code>被转换成<code>\x20</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_crlf.png" alt="CRLF"></p>
+<h2 id="3-分析"><a href="#3-分析" class="headerlink" title="3. 分析"></a>3. 分析</h2><p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:468</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="comment">// If this resolver is not supposed to handle the given view,</span></span><br><span class="line">	<span class="comment">// return null to pass on to the next resolver in the chain.</span></span><br><span class="line">	<span class="keyword">if</span> (!canHandle(viewName, locale)) &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "redirect:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(REDIRECT_URL_PREFIX)) &#123;</span><br><span class="line">		String redirectUrl = viewName.substring(REDIRECT_URL_PREFIX.length());</span><br><span class="line">		RedirectView view = <span class="keyword">new</span> RedirectView(redirectUrl,</span><br><span class="line">			isRedirectContextRelative(), isRedirectHttp10Compatible());</span><br><span class="line">		String[] hosts = getRedirectHosts();</span><br><span class="line">		<span class="keyword">if</span> (hosts != <span class="keyword">null</span>) &#123;</span><br><span class="line">			view.setHosts(hosts);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(REDIRECT_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "forward:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(FORWARD_URL_PREFIX)) &#123;</span><br><span class="line">		String forwardUrl = viewName.substring(FORWARD_URL_PREFIX.length());</span><br><span class="line">		InternalResourceView view = <span class="keyword">new</span> InternalResourceView(forwardUrl);</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(FORWARD_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Else fall back to superclass implementation: calling loadView.</span></span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">super</span>.createView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到，存在三种<code>viewName</code>的处理方法：</p>
+<ol>
+<li>以<code>redirect:</code>为前缀</li>
+<li>以<code>forward:</code>为前缀</li>
+<li>没有前缀</li>
+</ol>
+<h3 id="3-1-以redirect为前缀"><a href="#3-1-以redirect为前缀" class="headerlink" title="3.1 以redirect为前缀"></a>3.1 以redirect为前缀</h3><p>新建一个<code>RedirectView</code>对象，表现结果是根据视图名进行302跳转，返回包中的<code>Location</code>头为<code>redirectUrl</code>变量。</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_web_xml.png" alt="redirect_web.xml"></p>
+<h3 id="3-2-以forward为前缀"><a href="#3-2-以forward为前缀" class="headerlink" title="3.2 以forward为前缀"></a>3.2 以forward为前缀</h3><p>新建一个<code>InternalResourceView</code>对象，根据视图名到指定的位置获取视图模板</p>
+<p>在spring的配置文件中，会存在如下的视图解析器配置</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/"</span>/&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>InternalResourceView</code>对象会受到该视图解析器配置的影响。</p>
+<p><code>InternalResourceViewResolver</code>会把返回的视图名称都解析为<code>InternalResourceView</code>对象，<code>InternalResourceView</code>会把Controller处理器方法返回的模型属性都存放到对应的<code>request</code>属性中，然后通过<code>RequestDispatcher</code>在服务器端把请求forword重定向到目标URL。比如在<code>InternalResourceViewResolver</code>中定义了<code>prefix=/WEB-INF/</code>，<code>suffix=.jsp</code>，然后请求的Controller处理器方法返回的视图名称为<code>test</code>，那么这个时候<code>InternalResourceViewResolver</code>就会把<code>test</code>解析为一个<code>InternalResourceView</code>对象，先把返回的模型属性都存放到对应的<code>HttpServletRequest</code>属性中，然后利用<code>RequestDispatcher</code>在服务器端把请求forword到<code>/WEB-INF/test.jsp</code>。</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/WEB-INF/"</span>/&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"suffix"</span> <span class="attr">value</span>=<span class="string">".jsp"</span>&gt;</span><span class="tag">&lt;/<span class="name">property</span>&gt;</span>  </span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:549</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> AbstractUrlBasedView <span class="title">buildView</span><span class="params">(String viewName)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	Class&lt;?&gt; viewClass = getViewClass();</span><br><span class="line">	Assert.state(viewClass != <span class="keyword">null</span>, <span class="string">"No view class"</span>);</span><br><span class="line"></span><br><span class="line">	AbstractUrlBasedView view = (AbstractUrlBasedView) BeanUtils.instantiateClass(viewClass);</span><br><span class="line">	view.setUrl(getPrefix() + viewName + getSuffix());</span><br><span class="line">	view.setAttributesMap(getAttributesMap());</span><br><span class="line"></span><br><span class="line">	...</span><br></pre></td></tr></table></figure>
+
+<p><code>view.setUrl(getPrefix() + viewName + getSuffix())</code>会将前缀后缀拼接到<code>view</code>中，会导致可访问的文件有限（此时的前缀后缀是配置文件中的<code>prefix</code>和<code>suffix</code>，不是传入时的<code>forward:</code>）。</p>
+<h3 id="3-3-没有前缀"><a href="#3-3-没有前缀" class="headerlink" title="3.3 没有前缀"></a>3.3 没有前缀</h3><p>则调用<code>super.createView()</code>方法，等效于用户直接访问<code>viewName</code>。</p>
+<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/AbstractCachingViewResolver.java:274</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> loadView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="4-总结"><a href="#4-总结" class="headerlink" title="4. 总结"></a>4. 总结</h2><p><code>Spring ModelView Injection</code>有以下几种利用方式：</p>
+<ol>
+<li>web目录下的文件读取，但存在一定的限制（<code>InternalResourceViewResolver</code>中前后缀的配置）</li>
+<li>权限认证绕过</li>
+<li>重定向</li>
+</ol>
+<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf" target="_blank" rel="noopener">https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf</a></p>
+<p><a href="http://johnis.online/old/2018/09/18/spring-view-injection/" target="_blank" rel="noopener">http://johnis.online/old/2018/09/18/spring-view-injection/</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
+    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
+    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
+<a id="more"></a>
+
+<h2 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h2><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
+<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
+<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">        <span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">        <span class="comment">// by Spring MVC</span></span><br><span class="line">        <span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h2><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
+<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
+</blockquote>
+<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
+<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="image-20200703202336573" style="zoom:45%;">
+
+
+
+<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="image-20200703201319193" style="zoom:45%;">
+
+
+
+<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="image-20200703201419975" style="zoom:45%;">
+
+
+
+<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="image-20200703202141359" style="zoom:45%;">
+
+
+
+<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
+<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="image-20200703225103246" style="zoom:45%;">
+
+
+
+<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="image-20200703223208316" style="zoom:45%;">
+
+
+
+<p><code>load</code>方法如下</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="image-20200703224718336" style="zoom:45%;">
+
+<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="image-20200703223136604" style="zoom:45%;">
+
+
+
+<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
+<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="image-20200703225853171" style="zoom:45%;">
+
+
+
+<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
+<h2 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h2><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a></p>
+<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
+<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
+<p>测试之后发现同样会返回文件内容。</p>
+<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a></p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
+<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
+]]></content>
+  </entry>
+</search>
