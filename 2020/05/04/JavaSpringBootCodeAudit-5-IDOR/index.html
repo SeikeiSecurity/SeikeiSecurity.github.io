@@ -77,7 +77,7 @@
                                                                     <p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
 <a id="more"></a>
 
-<h1 id="访问控制"><a href="#访问控制" class="headerlink" title="访问控制"></a>访问控制</h1><p>常见的控制有基于角色的访问控制和基于资源的访问控制。</p>
+<h2 id="访问控制"><a href="#访问控制" class="headerlink" title="访问控制"></a>访问控制</h2><p>常见的控制有基于角色的访问控制和基于资源的访问控制。</p>
 <p>基于角色的访问控制以角色为主体，以角色进行访问控制粒度较粗，可扩展性不强，不利于系统维护。</p>
 <p>基于资源的访问控制以可访问的资源（简单说就是URL）为主体，可扩展性强，权限变动时容易更改。</p>
 <p>Java中做角色控制的组件常见的有Apache shiro和Spring Security，它们将软件系统的安全认证相关的功能抽取出来，实现用户身份认证，权限授权、加密、会话管理等功能，组成了一个通用的安全认证框架。</p>
@@ -89,7 +89,7 @@
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/path-interceptor.png" alt="path-interceptor"></p>
 <p>看到这里可能有同学会想，此处配置拦截器路径是否会存在绕过的可能性呢？</p>
 <p>Spring中拦截器的分配是由<code>DispatcherServlet</code>来分配的，也就是根据<code>ServletPath</code>来分配路径，和<code>getRequestURI</code>无关，也就是不管怎么使用<code>../</code>来做路径穿越，最终得到的还是ServletPath。如果使用类似<code>%00</code>空字符进行截断路径，会使得<code>DispatcherServlet</code>无法将请求分配到正确的Controller，导致请求无效。</p>
-<h2 id="管理员访问控制"><a href="#管理员访问控制" class="headerlink" title="管理员访问控制"></a>管理员访问控制</h2><p>先来看管理员的权限控制拦截器<code>AdminLoginInterceptor</code>。</p>
+<h3 id="管理员访问控制"><a href="#管理员访问控制" class="headerlink" title="管理员访问控制"></a>管理员访问控制</h3><p>先来看管理员的权限控制拦截器<code>AdminLoginInterceptor</code>。</p>
 <p>第24行的if判断，若uri开头为<code>/admin</code>并且当前session中没有<code>loginUser</code>属性，则跳转到登录页面，注意这里uri是通过<code>getRequestURI()</code>获取的，关于该方法存在的问题可以查看<a href="https://xz.aliyun.com/t/7544" target="_blank" rel="noopener">https://xz.aliyun.com/t/7544</a> 或<a href="https://joychou.org/web/security-of-getRequestURI.html" target="_blank" rel="noopener">https://joychou.org/web/security-of-getRequestURI.html</a> </p>
 <p><code>/src/main/java/ltd/newbee/mall/interceptor/AdminLoginInterceptor.java:24</code></p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor.png" alt="AdminLoginInterceptor"></p>
@@ -106,7 +106,7 @@
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/mitigate-bypass-adminlogininterceptor.png" alt="mitigate-bypass-adminlogininterceptor"></p>
 <p>此时再访问会返回302跳转到登录页面</p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-mitigated-adminlogininterceptor.png" alt="burp-request-mitigated-adminlogininterceptor"></p>
-<h2 id="普通用户访问控制"><a href="#普通用户访问控制" class="headerlink" title="普通用户访问控制"></a>普通用户访问控制</h2><p>普通用户的访问控制就简单粗暴了，直接判断当前session中是否存在<code>newBeeMallUser</code>属性，也就是判断当前用户是否登录。</p>
+<h3 id="普通用户访问控制"><a href="#普通用户访问控制" class="headerlink" title="普通用户访问控制"></a>普通用户访问控制</h3><p>普通用户的访问控制就简单粗暴了，直接判断当前session中是否存在<code>newBeeMallUser</code>属性，也就是判断当前用户是否登录。</p>
 <p><code>/src/main/java/ltd/newbee/mall/interceptor/NewBeeMallLoginInterceptor.java:24</code></p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/NewBeeMallLoginInterceptor.png" alt="NewBeeMallLoginInterceptor"></p>
 <p>这回不管用什么路径都无法绕过登录限制，因为请求对应的session中没有<code>MALL_USER_SESSION_KEY</code>的值。</p>
@@ -119,9 +119,9 @@
 
 <p>访问发现该路径确实没有经过登录拦截器，但是作者没有配置<code>mall/addresses</code>模版，也就是说这里是个未开发的功能，尚未构成漏洞。但仍存在隐患，若日后开发新功能时没有及时修改拦截器中的配置，就会导致未授权访问。</p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/burp-request-bypass-newbellmalllogininterceptor.png" alt="burp-request-bypass-newbellmalllogininterceptor"></p>
-<h1 id="越权"><a href="#越权" class="headerlink" title="越权"></a>越权</h1><h2 id="垂直越权"><a href="#垂直越权" class="headerlink" title="垂直越权"></a>垂直越权</h2><p>由于系统没有垂直权限的概念，管理员和普通用户都是独立存在的，管理员进行管理工作，普通用户进行购物、个人信息编辑操作。</p>
+<h2 id="越权"><a href="#越权" class="headerlink" title="越权"></a>越权</h2><h3 id="垂直越权"><a href="#垂直越权" class="headerlink" title="垂直越权"></a>垂直越权</h3><p>由于系统没有垂直权限的概念，管理员和普通用户都是独立存在的，管理员进行管理工作，普通用户进行购物、个人信息编辑操作。</p>
 <p>这里简单说一下审计思路，审计时弄明白是基于角色还是基于资源做的权限控制还是根本就没做权限控制。再根据其配置内容去找是否存在错误配置的权限，和找权限控制本身是否存在绕过的可能性。</p>
-<h2 id="水平越权"><a href="#水平越权" class="headerlink" title="水平越权"></a>水平越权</h2><p>在开发时有一个原则是尽量从session中获取用户ID进行查询，这样会避免越权查询漏洞产生。</p>
+<h3 id="水平越权"><a href="#水平越权" class="headerlink" title="水平越权"></a>水平越权</h3><p>在开发时有一个原则是尽量从session中获取用户ID进行查询，这样会避免越权查询漏洞产生。</p>
 <p>我们以查看「我的订单」为例，其中<code>user</code>对象直接从<code>httpSession</code>中获取，再将<code>user</code>中的<code>userId</code>传入后续步骤，最后在数据库中查询。这样一个过程用户侧是没法控制<code>userId</code>，使得该次数据库查询不可能越权。</p>
 <p><code>/src/main/java/ltd/newbee/mall/controller/mall/OrderController.java:47</code></p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/OrderController-orderListPage.png" alt="OrderController-orderListPage"></p>
@@ -182,7 +182,7 @@
 
 
 
-<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://blog.csdn.net/icarusliu/article/details/78809790" target="_blank" rel="noopener">https://blog.csdn.net/icarusliu/article/details/78809790</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://blog.csdn.net/icarusliu/article/details/78809790" target="_blank" rel="noopener">https://blog.csdn.net/icarusliu/article/details/78809790</a></p>
 
                                                                         
                                     </div>
@@ -291,6 +291,8 @@
 
 <script src="/js/jquery-2.0.3.min.js"></script>
 
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
 
 
 <script src="/js/lazyload.min.js"></script>
