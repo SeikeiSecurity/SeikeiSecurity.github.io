@@ -74,7 +74,7 @@
                                             
 
                                                 
-                                                                    <p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
+                                                                    <h1 id="SQL注入介绍"><a href="#SQL注入介绍" class="headerlink" title="SQL注入介绍"></a>SQL注入介绍</h1><p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
 <p><a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">案例项目</a>使用Mybatis作为数据持久层框架，进行数据库的各种操作。MyBatis的主要思想是将程序中的大量SQL语句剥离出来，配置在配置文件当中，实现SQL的灵活配置。配置文件常存放在<code>src/main/resources/mapper</code>中，配置文件命名为<code>ExampleMapper.xml</code></p>
 <a id="more"></a>
 
@@ -86,7 +86,7 @@
 
 
 
-<h2 id="SQL注入产生原理"><a href="#SQL注入产生原理" class="headerlink" title="SQL注入产生原理"></a>SQL注入产生原理</h2><p>为什么将<code>${}</code>改为<code>#{}</code>就能防止SQL注入呢？</p>
+<h1 id="SQL注入产生原理"><a href="#SQL注入产生原理" class="headerlink" title="SQL注入产生原理"></a>SQL注入产生原理</h1><p>为什么将<code>${}</code>改为<code>#{}</code>就能防止SQL注入呢？</p>
 <p>MyBatis<a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">官方文档</a>中有如下叙述:</p>
 <blockquote>
 <p><code>#{}</code>告诉 MyBatis 创建一个预编译语句（PreparedStatement）参数，在 JDBC 中，这样的一个参数在 SQL 中会由一个“?”来标识，并被传递到一个新的预处理语句中，就像这样：</p>
@@ -149,7 +149,7 @@
 
 
 
-<h2 id="SQL注入代码审计"><a href="#SQL注入代码审计" class="headerlink" title="SQL注入代码审计"></a>SQL注入代码审计</h2><p>知道了SQL注入产生的原理，那么找漏洞就非常简单了。SQL注入是代码审计中最好找的漏洞之一，只需分析SQL语句发现拼接，再逆向追踪拼接参数用户是否可控。不用被代码的多层调用所干扰。</p>
+<h1 id="SQL注入代码审计"><a href="#SQL注入代码审计" class="headerlink" title="SQL注入代码审计"></a>SQL注入代码审计</h1><p>知道了SQL注入产生的原理，那么找漏洞就非常简单了。SQL注入是代码审计中最好找的漏洞之一，只需分析SQL语句发现拼接，再逆向追踪拼接参数用户是否可控。不用被代码的多层调用所干扰。</p>
 <p>SQL注入审计过程：</p>
 <ol>
 <li>在Dao层（Mybaits在Mapper中，Mybatis也有注解写SQL的方式，但很少用），查看SQL语句是否使用拼接，关注<code>${}</code></li>
@@ -168,7 +168,7 @@
 <li>param不是字符类型，比如说parameter为int类型，只能传入数字，就没法产生SQL注入</li>
 <li>param在过程中已经转义或过滤字符，但是在Mybaits的SQL语句中看不出来，需考虑是否能绕过</li>
 </ol>
-<h2 id="参数追踪"><a href="#参数追踪" class="headerlink" title="参数追踪"></a>参数追踪</h2><p>以文章开头的SQL注入为例，来进行<code>keyword</code>参数逆向追踪过程</p>
+<h1 id="参数追踪"><a href="#参数追踪" class="headerlink" title="参数追踪"></a>参数追踪</h1><p>以文章开头的SQL注入为例，来进行<code>keyword</code>参数逆向追踪过程</p>
 <p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:70,94</code>存在<code>${}</code>拼接</p>
 <p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/sqli-in-like.png" alt="sqli-in-like"></p>
 <p>可以看到在like后面使用了concat拼接，这是因为mapper.xml是使用mybatis-generator自动生成的，产生的like语句和in语句默认使用<code>#{}</code>，但这里使用<code>${}</code>拼接字符可能是由于作者修改功能时更改，导致SQL注入漏洞产生。</p>
@@ -195,15 +195,15 @@
 
 
 <p>整个参数追踪就到这，还有一个需要注意的地方就是看看应用中是否存在过滤器，过滤器是否会将特殊字符拦截。该应用没有针对SQL注入的过滤器，所以追踪完参数，可以确定该处SQL拼接存在注入漏洞。</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>对于SQL注入的审计，在Mapper中搜寻是否存在<code>${}</code>拼接的情况，尤其注意order by、group by、like、in。找到拼接后再逆向追踪参数，判断参数是否可控，是否是字符类型，检查是否存在过滤器过滤SQL字符。</p>
-<h2 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h2><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>对于SQL注入的审计，在Mapper中搜寻是否存在<code>${}</code>拼接的情况，尤其注意order by、group by、like、in。找到拼接后再逆向追踪参数，判断参数是否可控，是否是字符类型，检查是否存在过滤器过滤SQL字符。</p>
+<h1 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h1><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
 <p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
 <p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
 
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" data-id="ckc7s644r0006e1jc3ov31uvu" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/" data-id="ckc8mjdeu000619jcgyxd1q22" class="article-share-link">
                                             分享
                                         </a> -->
                                         

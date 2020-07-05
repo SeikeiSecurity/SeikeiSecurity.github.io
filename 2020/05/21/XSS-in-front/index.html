@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    前端框架中XSS的代码表现形式 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-XSS-in-front" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      前端框架中XSS的代码表现形式
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/05/21/XSS-in-front/" class="article-date">
+  <time datetime="2020-05-21T01:36:16.347Z" itemprop="datePublished">2020-05-21</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>随着前端技术的发展，越来越多的框架默认对XSS做了有效的防范，遵循secure by default原则。</p>
+<p>如果不了解前端框架本身的安全特性，就会导致代码审计过程中对XSS的审计不严密。</p>
+<p>本文是从代码审计的视角去看不同前端框架中可能导致XSS的代码写法。</p>
+<a id="more"></a>
+
+<p>参考：<a href="https://sqreen.github.io/VueXSSDemo/#/" target="_blank" rel="noopener">https://sqreen.github.io/VueXSSDemo/#/</a></p>
+<h1 id="Vue"><a href="#Vue" class="headerlink" title="Vue"></a>Vue</h1><p>Vue使用双大括号<code></code>将参数显示在浏览器中，双大括号默认将其中的数据解析为普通文本，而非 HTML 代码，这样避免了XSS的产生。</p>
+<p>其他输出指令也同样会将数据解析为普通文本，比如<code>v-model</code></p>
+<p>当然实际业务中也存在输出HTML代码的需求，若想输出真正的 HTML，就需要使用 <code>v-html</code> 指令</p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Using mustaches: &#123;&#123; rawHtml &#125;&#125;<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Using v-html directive: <span class="tag">&lt;<span class="name">span</span> <span class="attr">v-html</span>=<span class="string">"rawHtml"</span>&gt;</span><span class="tag">&lt;/<span class="name">span</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>若此时rawHtml为<code>&lt;span style=&quot;color: red&quot;&gt;This should be malicious.&lt;/span&gt;</code>，实际效果如下图：</p>
+<img src="/2020/05/21/XSS-in-front/vue-xss.png" alt="vue-xss" style="zoom:30%;">
+
+
+
+<p><code>v-html</code>的内容会被浏览器当作HTML字符解析，会导致XSS漏洞产生。</p>
+<blockquote>
+<p><strong>代码审计关键</strong>：注意<code>v-html</code>，<code>v-html</code>输出的值若用户可控，就可能存在XSS。</p>
+</blockquote>
+<p>来源：<a href="https://cn.vuejs.org/v2/guide/syntax.html#%E5%8E%9F%E5%A7%8B-HTML" target="_blank" rel="noopener">https://cn.vuejs.org/v2/guide/syntax.html#原始-HTML</a></p>
+<h1 id="Angular"><a href="#Angular" class="headerlink" title="Angular"></a>Angular</h1><p>Angular同样默认把所有值都当做不可信任的。 当值从模板中以属性（Property）、DOM 元素属性（Attribte)、CSS 类绑定或插值等途径插入到 DOM 中的时候， Angular 将对这些值进行无害化处理（Sanitize），对不可信的值进行编码。</p>
+<p>在低版本（&lt;1.6）的Angular中，存在模版注入的漏洞，用户直接传入<code>49</code>会将<code>7*7</code>插入到Angular的解析之中导致代码执行。</p>
+<p>但前端框架更新速度是非常快的，截止到写文章，目前最新的Angular版本为<code>v9.1.9</code>，及时更新可以一定程度避免框架本身导致的漏洞。</p>
+<p>回到前端开发利用Angular框架回显参数时触发XSS的问题上来。</p>
+<p>和Vue一样，Angular也使用双大括号<code></code>将数据显示在浏览器中，双大括号默认将其中的数据解析为普通文本</p>
+<p>不同的是Angular使用<code>[innerHTML]</code>来表示其中的内容会被浏览器正常解析，不过Angular会识别其中的值，并将其进行无害化处理。</p>
+<p>比如存在以下场景，一处使用<code></code>显示<code>htmlSnippet</code>，另一处使用<code>[innerHTML]=&quot;htmlSnippet&quot;</code>显示<code>htmlSnippet</code></p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">h3</span>&gt;</span>Binding innerHTML<span class="tag">&lt;/<span class="name">h3</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Bound value:<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span> <span class="attr">class</span>=<span class="string">"e2e-inner-html-interpolated"</span>&gt;</span>&#123;&#123;htmlSnippet&#125;&#125;<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Result of binding to innerHTML:<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span> <span class="attr">class</span>=<span class="string">"e2e-inner-html-bound"</span> [<span class="attr">innerHTML</span>]=<span class="string">"htmlSnippet"</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>当htmlSnippet的内容如下时</p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">htmlSnippet = 'Template <span class="tag">&lt;<span class="name">script</span>&gt;</span><span class="actionscript">alert(<span class="string">"seikei"</span>)</span><span class="tag">&lt;/<span class="name">script</span>&gt;</span> <span class="tag">&lt;<span class="name">b</span>&gt;</span>Syntax<span class="tag">&lt;/<span class="name">b</span>&gt;</span>';</span><br></pre></td></tr></table></figure>
+
+<p>得到的结果如下，最后一行<code>&lt;script&gt;</code>标签不见了，不过它不是被浏览器解析了，而是被Angular自动进行了无害化处理，移除了<code>&lt;script&gt;</code>标签，保留安全的内容，比如片段中的<code>&lt;b&gt;</code>标签。</p>
+<img src="/2020/05/21/XSS-in-front/angular-xss-sanitize.png" alt="angular-xss-sanitize" style="zoom:33%;">
+
+
+
+<p>那万一Angular无害化处理器把业务所需的内容过滤了怎么办呢？</p>
+<p>为了防止这种情况，Angular可以使用以下方法把值标记为可信任的，这样无害化处理器就不会再对该值进行过滤。</p>
+<ul>
+<li><code>bypassSecurityTrustHtml</code></li>
+<li><code>bypassSecurityTrustScript</code></li>
+<li><code>bypassSecurityTrustStyle</code></li>
+<li><code>bypassSecurityTrustUrl</code></li>
+<li><code>bypassSecurityTrustResourceUrl</code></li>
+</ul>
+<p>如下场景</p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">h4</span>&gt;</span>An untrusted URL:<span class="tag">&lt;/<span class="name">h4</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span><span class="tag">&lt;<span class="name">a</span> <span class="attr">class</span>=<span class="string">"e2e-dangerous-url"</span> [<span class="attr">href</span>]=<span class="string">"dangerousUrl"</span>&gt;</span>Click me<span class="tag">&lt;/<span class="name">a</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">h4</span>&gt;</span>A trusted URL:<span class="tag">&lt;/<span class="name">h4</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span><span class="tag">&lt;<span class="name">a</span> <span class="attr">class</span>=<span class="string">"e2e-trusted-url"</span> [<span class="attr">href</span>]=<span class="string">"trustedUrl"</span>&gt;</span>Click me<span class="tag">&lt;/<span class="name">a</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>dangerousUrl为恶意代码，trustedUrl是经过信任的代码，可以不经过无害化处理器直接解析。</p>
+<figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">dangerousUrl = <span class="string">'javascript:alert("Hi seikei")'</span>;</span><br><span class="line">trustedUrl = sanitizer.bypassSecurityTrustUrl(dangerousUrl);</span><br></pre></td></tr></table></figure>
+
+<p>结果是trusted URL会导致XSS产生，而untrusted不会。</p>
+<img src="/2020/05/21/XSS-in-front/angular-xss.png" alt="angular-xss" style="zoom:33%;">
+
+
+
+<blockquote>
+<p><strong>代码审计关键</strong>：注意<code>[innerHTML]</code>、<code>[href]</code>、<code>[src]</code>等，再关注其传入的值是否经过<code>bypassSecurityTrust</code>标记为信任，若值是信任的且用户可控，就可能存在XSS漏洞。</p>
+</blockquote>
+<p>来源：<a href="https://angular.cn/guide/security#xss" target="_blank" rel="noopener">https://angular.cn/guide/security#xss</a></p>
+<h1 id="React"><a href="#React" class="headerlink" title="React"></a>React</h1><p>React使用<code>dangerouslySetInnerHTML</code>作为HTML输入的方法，并且需要向其传递包含 key 为 <code>__html</code> 的对象。只有使用<code>dangerouslySetInnerHTML</code>会存在XSS。</p>
+<figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> React <span class="keyword">from</span> <span class="string">'react'</span>;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">SetHtml</span> <span class="keyword">extends</span> <span class="title">React</span>.<span class="title">Component</span> </span>&#123;</span><br><span class="line">  <span class="keyword">constructor</span>()&#123;</span><br><span class="line">    <span class="keyword">super</span>();</span><br><span class="line">    <span class="keyword">this</span>.state = &#123;</span><br><span class="line">      content:<span class="string">'React XSS Demo &lt;script&gt;alert("seikei")&lt;/script&gt;'</span></span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">   render() &#123;</span><br><span class="line">     <span class="keyword">return</span> (</span><br><span class="line">       &lt;div&gt;</span><br><span class="line">          &lt;div&gt;</span><br><span class="line">            &#123;<span class="keyword">this</span>.state.content&#125;</span><br><span class="line">          &lt;<span class="regexp">/div&gt;</span></span><br><span class="line"><span class="regexp"></span></span><br><span class="line"><span class="regexp">          &lt;div dangerouslySetInnerHTML=&#123;&#123;__html: this.state.content&#125;&#125; /</span>&gt;</span><br><span class="line"></span><br><span class="line">       &lt;<span class="regexp">/div&gt;</span></span><br><span class="line"><span class="regexp">     )</span></span><br><span class="line"><span class="regexp">   &#125;</span></span><br><span class="line"><span class="regexp">&#125;</span></span><br><span class="line"><span class="regexp"></span></span><br><span class="line"><span class="regexp">export default SetHtml;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<blockquote>
+<p><strong>代码审计关键</strong>：关注<code>dangerouslySetInnerHTML</code>，若用户输入在<code>dangerouslySetInnerHTML</code>中，可能导致XSS。</p>
+</blockquote>
+<p>来源：<a href="https://zh-hans.reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml" target="_blank" rel="noopener">https://zh-hans.reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml</a></p>
+<h1 id="Thymeleaf"><a href="#Thymeleaf" class="headerlink" title="Thymeleaf"></a>Thymeleaf</h1><p>其实thymeleaf算不上前端框架，但是也能控制输入到前端页面的内容。在这里简单记录一下。</p>
+<p>thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p>而<code>th:utext</code>不会将字符转义，这就会导致XSS产生。</p>
+<blockquote>
+<p><strong>代码审计关键</strong>：关注<code>th:utext</code>，<code>th:utext</code>中的内容用户可控则存在XSS。</p>
+</blockquote>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/21/XSS-in-front/" data-id="ckc8mjdfg000g19jc0ls4gu5z" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/06/13/Spring_ModelAndView_Injection/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            Spring ModelAndView 注入
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Java SpringBoot框架代码审计七 - 逻辑漏洞</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

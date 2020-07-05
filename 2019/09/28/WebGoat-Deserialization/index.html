@@ -83,11 +83,11 @@
 <p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
 <p>另一篇文章</p>
 <p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
-<h2 id="正文开始："><a href="#正文开始：" class="headerlink" title="正文开始："></a>正文开始：</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
+<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
 <p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
 <p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
 <p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
-<p>然后将Send request to DS - Exploitation</p>
+<p>然后将请求Send request to DS - Exploitation</p>
 <p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
 <p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
 <p>详细报错信息如下所示</p>
@@ -125,7 +125,7 @@
 <li>找到相应可利用执行命令的组件</li>
 </ol>
 <p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
-<h2 id="动态调试："><a href="#动态调试：" class="headerlink" title="动态调试："></a>动态调试：</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
+<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
 <p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
 <p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
 <p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
@@ -144,7 +144,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2019/09/28/WebGoat-Deserialization/" data-id="ckc7s645e000fe1jc5pgsh5b9" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2019/09/28/WebGoat-Deserialization/" data-id="ckc8mjdfe000f19jcb4y34h7x" class="article-share-link">
                                             分享
                                         </a> -->
                                         

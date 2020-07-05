@@ -77,7 +77,7 @@
                                                                     <p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
 <a id="more"></a>
 
-<h2 id="代码审计过程"><a href="#代码审计过程" class="headerlink" title="代码审计过程"></a>代码审计过程</h2><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
+<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
 <p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
 <p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
 <p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
@@ -123,7 +123,7 @@
 <p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
 <p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
 <p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
-<h2 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h2><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
+<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
 <ol>
 <li>对HTML做充分转义</li>
 </ol>
@@ -133,14 +133,14 @@
 <ol start="2">
 <li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
 </ol>
-<h2 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h2><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
+<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
 <p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
 <p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 
 
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
 <p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
 <p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
 <p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
@@ -148,7 +148,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" data-id="ckc7s644u0007e1jc4b90fy7u" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" data-id="ckc8mjdey000819jc0qc100ns" class="article-share-link">
                                             分享
                                         </a> -->
                                         

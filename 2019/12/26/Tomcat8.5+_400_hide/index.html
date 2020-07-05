@@ -78,7 +78,7 @@
 <p>从Tomcat 8.5版本开始，若URL中存在部分特殊字符，会产生400报错。本以为修复方法和其他404、5XX报错页面没什么不同，结果并不简单。因为这个400报错是由于Tomcat无法解析字符导致的报错，并不通过代码层面，所以一般的错误页面自定义配置就会失效。</p>
 <a id="more"></a>
 
-<h2 id="隐藏Tomcat-400报错"><a href="#隐藏Tomcat-400报错" class="headerlink" title="隐藏Tomcat 400报错"></a>隐藏Tomcat 400报错</h2><p>报错如下图所示：</p>
+<h1 id="隐藏Tomcat-400报错"><a href="#隐藏Tomcat-400报错" class="headerlink" title="隐藏Tomcat 400报错"></a>隐藏Tomcat 400报错</h1><p>报错如下图所示：</p>
 <img src="/2019/12/26/Tomcat8.5+_400_hide/400-error.png" alt="400-error">
 
 <p>查看Tomcat文档<a href="https://tomcat.apache.org/tomcat-8.5-doc/config/http.html" target="_blank" rel="noopener">https://tomcat.apache.org/tomcat-8.5-doc/config/http.html</a> ，其中<code>relaxedPathChars</code>和<code>relaxedQueryChars</code>中写明，若存在<code>&quot; &lt; &gt; [ \ ] ^ ` { | }</code>符号，Tomcat无法解析URI，产生报错。</p>
@@ -96,7 +96,7 @@
 <img src="/2019/12/26/Tomcat8.5+_400_hide/hide-400-error.png" alt="hide-400-error">
 
 <p>虽然没有彻底自定义界面，但好歹也隐藏掉了报错信息。</p>
-<h2 id="附加"><a href="#附加" class="headerlink" title="附加"></a>附加</h2><p>本地快速复现漏洞，得善用docker。通过docker可以快速构造好需要的环境，可能节省很多亲自搭建环境的时间，如果让我自己来搭的话指不定要多久，说不定还会碰到各种环境不兼容的问题，有现成的直接用就非常爽了。比如这里我需要tomcat 9，直接在dockerhub上搜索tomcat9，然后随便点击进一个项目。</p>
+<h1 id="附加"><a href="#附加" class="headerlink" title="附加"></a>附加</h1><p>本地快速复现漏洞，得善用docker。通过docker可以快速构造好需要的环境，可能节省很多亲自搭建环境的时间，如果让我自己来搭的话指不定要多久，说不定还会碰到各种环境不兼容的问题，有现成的直接用就非常爽了。比如这里我需要tomcat 9，直接在dockerhub上搜索tomcat9，然后随便点击进一个项目。</p>
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/docker-search.png" alt="docker-search"></p>
 <p>复制Docker Pull Command，在命令行中输入，即可把镜像拉下来</p>
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/docker-search-2.png" alt="docker-search-2"></p>
@@ -121,7 +121,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2019/12/26/Tomcat8.5+_400_hide/" data-id="ckc7s6459000de1jc20br20m3" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2019/12/26/Tomcat8.5+_400_hide/" data-id="ckc8mjdf9000d19jcfukb5axk" class="article-share-link">
                                             分享
                                         </a> -->
                                         
