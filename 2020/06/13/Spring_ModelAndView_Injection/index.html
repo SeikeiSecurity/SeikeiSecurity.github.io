@@ -92,9 +92,9 @@
 <li>redirect:/view</li>
 </ol>
 <p>若<code>ModelAndView(view)</code>中的<code>view</code>参数可被用户控制，可能导致文件被读取的问题。</p>
-<p>若直接访问<a href="http://localhost:8089/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/WEB-INF/web.xml</a> ，返回404</p>
+<p>若直接访问 <a href="http://localhost:8089/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/WEB-INF/web.xml</a> ，返回404</p>
 <p><img src="/2020/06/13/Spring_ModelAndView_Injection/request_web_xml.png" alt="request_web.xml"></p>
-<p>而使用<code>ModelAndView</code>注入，访问<a href="http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml</a> ，就可以看到<code>web.xml</code>的内容</p>
+<p>而使用<code>ModelAndView</code>注入，访问 <a href="http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml</a> ，就可以看到<code>web.xml</code>的内容</p>
 <p><img src="/2020/06/13/Spring_ModelAndView_Injection/forward_web_xml.png" alt="forward_web.xml"></p>
 <p>但是仅能读取web目录下的文件，不能读取系统其他文件。尝试读取web目录外的文件时产生如下报错：<code>Check that the corresponding file exists within your web application archive!</code></p>
 <p><img src="/2020/06/13/Spring_ModelAndView_Injection/500_error.png" alt="500_error"></p>
@@ -154,7 +154,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/06/13/Spring_ModelAndView_Injection/" data-id="ckca93qfu000cklgb1qt016ng" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/06/13/Spring_ModelAndView_Injection/" data-id="ckca9sc5q000d71gb1zyjfspm" class="article-share-link">
                                             分享
                                         </a> -->
                                         

@@ -127,7 +127,7 @@
 <ol>
 <li>对HTML做充分转义</li>
 </ol>
-<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如<a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
+<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如 <a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
 <p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
 <p>修复过程中得结合考虑实际的业务场景。</p>
 <ol start="2">
@@ -148,7 +148,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" data-id="ckca93qfl0008klgbfvp38u0m" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/03/JavaSpringBootCodeAudit-4-XSS/" data-id="ckca9sc5g000871gbf1sp2k1z" class="article-share-link">
                                             分享
                                         </a> -->
                                         

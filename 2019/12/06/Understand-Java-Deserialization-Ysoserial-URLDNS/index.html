@@ -185,7 +185,7 @@
 </blockquote>
 <p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
 <p>另外，URLDNS 为了防⽌在⽣成 Payload 的时候也执⾏了 URL 请求和 DNS 查询，所以重写了⼀ 个 <code>SilentURLStreamHandler</code> 类，但这不是必须的。</p>
-<p>URLDNS 中的注释也存在相应的说明，可在 ysoserial 项目代码<a href="https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java</a> 中查看。</p>
+<p>URLDNS 中的注释也存在相应的说明，可在 ysoserial 项目代码 <a href="https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java</a> 中查看。</p>
 <h1 id="五、对反序列化的理解"><a href="#五、对反序列化的理解" class="headerlink" title="五、对反序列化的理解"></a>五、对反序列化的理解</h1><p>Java 反序列化漏洞核心就是执行被反序列化类的 <code>readObject()</code> 方法，<code>readObject()</code> 是整个利用链的起点。纵观整个反序列化的过程，最难的是利用链的构造。</p>
 <p>一个系统存在反序列化漏洞需要满足以下条件：</p>
 <ol>
@@ -212,7 +212,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/" data-id="ckca93qg3000gklgb6z9ffp7j" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/" data-id="ckca9sc5s000e71gbcib2akub" class="article-share-link">
                                             分享
                                         </a> -->
                                         

@@ -90,10 +90,10 @@
 <p>看到这里可能有同学会想，此处配置拦截器路径是否会存在绕过的可能性呢？</p>
 <p>Spring中拦截器的分配是由<code>DispatcherServlet</code>来分配的，也就是根据<code>ServletPath</code>来分配路径，和<code>getRequestURI</code>无关，也就是不管怎么使用<code>../</code>来做路径穿越，最终得到的还是ServletPath。如果使用类似<code>%00</code>空字符进行截断路径，会使得<code>DispatcherServlet</code>无法将请求分配到正确的Controller，导致请求无效。</p>
 <h2 id="管理员访问控制"><a href="#管理员访问控制" class="headerlink" title="管理员访问控制"></a>管理员访问控制</h2><p>先来看管理员的权限控制拦截器<code>AdminLoginInterceptor</code>。</p>
-<p>第24行的if判断，若uri开头为<code>/admin</code>并且当前session中没有<code>loginUser</code>属性，则跳转到登录页面，注意这里uri是通过<code>getRequestURI()</code>获取的，关于该方法存在的问题可以查看<a href="https://xz.aliyun.com/t/7544" target="_blank" rel="noopener">https://xz.aliyun.com/t/7544</a> 或<a href="https://joychou.org/web/security-of-getRequestURI.html" target="_blank" rel="noopener">https://joychou.org/web/security-of-getRequestURI.html</a> </p>
+<p>第24行的if判断，若uri开头为<code>/admin</code>并且当前session中没有<code>loginUser</code>属性，则跳转到登录页面，注意这里uri是通过<code>getRequestURI()</code>获取的，关于该方法存在的问题可以查看 <a href="https://xz.aliyun.com/t/7544" target="_blank" rel="noopener">https://xz.aliyun.com/t/7544</a> 或 <a href="https://joychou.org/web/security-of-getRequestURI.html" target="_blank" rel="noopener">https://joychou.org/web/security-of-getRequestURI.html</a> </p>
 <p><code>/src/main/java/ltd/newbee/mall/interceptor/AdminLoginInterceptor.java:24</code></p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor.png" alt="AdminLoginInterceptor"></p>
-<p>在未登录的情况下，访问<a href="http://localhost:8089/index/..;/admin" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin</a> 可直接访问管理后台。此时<code>getRequestURI()</code>获取的值为<code>/index/..;/admin</code>，这样就绕过了<code>uri.startsWith(&quot;/admin&quot;)</code>的判断，使得if判断为假，不会跳转到登录页面。</p>
+<p>在未登录的情况下，访问 <a href="http://localhost:8089/index/..;/admin" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin</a> 可直接访问管理后台。此时<code>getRequestURI()</code>获取的值为<code>/index/..;/admin</code>，这样就绕过了<code>uri.startsWith(&quot;/admin&quot;)</code>的判断，使得if判断为假，不会跳转到登录页面。</p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/AdminLoginInterceptor-Bypass.png" alt="AdminLoginInterceptor-Bypass"></p>
 <p>我们对if判断进行调试，看到传入的uri为<code>/index/..;/admin/goods/list</code>，</p>
 <p><img src="/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/debug-bypass-adminlogininterceptor1.png" alt="debug-bypass-adminlogininterceptor"></p>
@@ -185,7 +185,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" data-id="ckca93qfn0009klgbdvhxhqtm" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/" data-id="ckca9sc5i000971gb3etd3ks1" class="article-share-link">
                                             分享
                                         </a> -->
                                         

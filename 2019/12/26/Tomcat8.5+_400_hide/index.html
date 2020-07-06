@@ -81,7 +81,7 @@
 <h1 id="隐藏Tomcat-400报错"><a href="#隐藏Tomcat-400报错" class="headerlink" title="隐藏Tomcat 400报错"></a>隐藏Tomcat 400报错</h1><p>报错如下图所示：</p>
 <img src="/2019/12/26/Tomcat8.5+_400_hide/400-error.png" alt="400-error">
 
-<p>查看Tomcat文档<a href="https://tomcat.apache.org/tomcat-8.5-doc/config/http.html" target="_blank" rel="noopener">https://tomcat.apache.org/tomcat-8.5-doc/config/http.html</a> ，其中<code>relaxedPathChars</code>和<code>relaxedQueryChars</code>中写明，若存在<code>&quot; &lt; &gt; [ \ ] ^ ` { | }</code>符号，Tomcat无法解析URI，产生报错。</p>
+<p>查看Tomcat文档 <a href="https://tomcat.apache.org/tomcat-8.5-doc/config/http.html" target="_blank" rel="noopener">https://tomcat.apache.org/tomcat-8.5-doc/config/http.html</a> ，其中<code>relaxedPathChars</code>和<code>relaxedQueryChars</code>中写明，若存在<code>&quot; &lt; &gt; [ \ ] ^ ` { | }</code>符号，Tomcat无法解析URI，产生报错。</p>
 <p>所以必须采用其他方法进行修复，这里提供隐藏报错详细信息的修复方式。</p>
 <p>在<code>server.xml</code>中添加一个<code>ErrorReportValve</code>，将<code>showReport</code>设置为<code>false</code>就隐藏了详细报错信息，<code>showServerInfo</code>设置为<code>false</code>是隐藏Tomcat版本信息。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;Valve className&#x3D;&quot;org.apache.catalina.valves.ErrorReportValve&quot;</span><br><span class="line">                   showReport&#x3D;&quot;false&quot;</span><br><span class="line">                   showServerInfo&#x3D;&quot;false&quot; &#x2F;&gt;</span><br></pre></td></tr></table></figure>
@@ -121,7 +121,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2019/12/26/Tomcat8.5+_400_hide/" data-id="ckca93qfz000eklgbbrk08wc0" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2019/12/26/Tomcat8.5+_400_hide/" data-id="ckca9sc7s000g71gb5dv40q80" class="article-share-link">
                                             分享
                                         </a> -->
                                         

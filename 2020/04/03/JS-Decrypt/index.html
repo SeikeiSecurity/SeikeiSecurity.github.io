@@ -78,16 +78,18 @@
 <p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
 </blockquote>
 <p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
-<p>某app的h5页面显示的链接是<a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
+<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
 <a id="more"></a>
 
-<p>实际上在burp中抓包它的请求链接是<a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
 <p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
-<p>通过在JS中找加密方式，网站的js很少，随便找找就发现在index.js中存在加解密。</p>
-<p>传输request body采用AES加密，加密方式是<code>CBC Pkcs7</code></p>
-<p><code>o: ^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
-<p><code>iv: 0108489312380708</code></p>
-<p>AES加解密的过程就是这样，还是比较清晰的。</p>
+<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
+<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
+<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
+<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
+<p>偏移量iv：<code>0108489312380708</code></p>
+<p>AES加解密的过程如下图，还是比较清晰的。</p>
 <p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
 <p>下图是调试过程，密钥就直接拿到了：</p>
 <p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
@@ -95,7 +97,7 @@
 <p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
 <p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
 <p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
-<p>修改完成之后进行AES加密，我使用的是<a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
+<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
 <p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
 <p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
 <p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
@@ -121,7 +123,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/04/03/JS-Decrypt/" data-id="ckca93qfa0004klgbgtsicsx2" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/04/03/JS-Decrypt/" data-id="ckca9sc54000471gb12khd69j" class="article-share-link">
                                             分享
                                         </a> -->
                                         
