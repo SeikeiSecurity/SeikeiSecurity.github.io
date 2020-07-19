@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Java Runtime.getRuntime().exec()碰到的问题 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-Java-Runtime.getRuntime.exec" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Java Runtime.getRuntime().exec()碰到的问题
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/07/18/Java-Runtime.getRuntime.exec/" class="article-date">
+  <time datetime="2020-07-17T16:00:00.000Z" itemprop="datePublished">2020-07-18</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>在CVE-2020-5902 F5-BigIP-TMUI远程代码执行漏洞分析中<code>WorkspaceUtils.saveFile()</code>碰到这么一段代码。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/f5-runtime.png" alt="f5-runtime"></p>
+<p>众所周知，<code>Runtime.getRuntime.exec()</code>在Java中用来执行系统命令。<a id="more"></a></p>
+<p>本以为Java和其他语言一样可能会导致命令注入的问题，但经过测试发现该处并不能造成任意命令执行，于是对<code>Runtime.getRuntime.exec()</code>进行分析。</p>
+<h1 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h1><blockquote>
+<p>测试时Java版本为1.8.0_221</p>
+</blockquote>
+<p>先在<code>/tmp</code>目录下新建两个测试文件：<code>test1.txt</code>和<code>test2.txt</code>，此时权限是644（rw-r–r–）</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/before-chmod.png" alt="before-chmod"></p>
+<p>为了方便测试，我们将F5中的代码简化一下，代码将<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>文件权限变为777</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/chmod 777 /tmp/test2.txt"</span>;</span><br><span class="line">        String[] chmodCmd = <span class="keyword">new</span> String[]&#123;<span class="string">"/bin/chmod"</span>, <span class="string">"777"</span>, fileName&#125;;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，发现文件权限并没有变化。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/array-chmod.png" alt="array-chmod"></p>
+<p>再使用字符串形式传递command参数，变成如下形式，</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/chmod 777 /tmp/test2.txt"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 777 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，此时发现两个文件的权限都变成777（rwxrwxrwx）</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/string-chmod.png" alt="string-chmod"></p>
+<p>那么是不是可以说明，使用字符串传递command参数就能产生命令注入的漏洞？</p>
+<p>并不是这样，我们将执行的命令改成<code>/tmp/test1.txt</code>变为644，<code>/tmp/test2.txt</code>变成700</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/chmod 700 /tmp/test2.txt"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 644 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，发现都变成了644（rw-r–r–），而不是一个644，一个700。具体原因在分析章节中会讲到。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/diff-string-chmod.png" alt="diff-string-chmod.png"></p>
+<p>我们再来看下面一个例子，将<code>/tmp/test1.txt</code>文件权限变为777，另外在<code>/tmp/</code>中新建一个名为<code>seikei</code>的文件夹。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 777 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行代码，此时仅是<code>/tmp/test1.txt</code>权限改成777，并没有生成<code>/tmp/seikei</code>文件夹。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/chmod-mkdir.png" alt="chmod-mkdir"></p>
+<p>那么为什么会导致以上现象发生，下面我们通过代码来分析一下。</p>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><p>首先来看<code>Runtime.getRuntime.exec()</code>的代码，<code>Runtime.getRuntime.exec()</code>有以下六种重载方法，虽然应用程序可能会调用不同的重载方法，最终都会执行到<code>public Process exec(String[] cmdarray, String[] envp, File dir)</code></p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/runtime-getRuntime-exec.png" alt="runtime-getRuntime-exec"></p>
+<p>先来看第三个<code>public Process exec(String command, String[] envp, File dir)</code>，也就是传入将命令以字符串的形式传入。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> Process <span class="title">exec</span><span class="params">(String command, String[] envp, File dir)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (command.length() == <span class="number">0</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> IllegalArgumentException(<span class="string">"Empty command"</span>);</span><br><span class="line"></span><br><span class="line">    StringTokenizer st = <span class="keyword">new</span> StringTokenizer(command);</span><br><span class="line">    String[] cmdarray = <span class="keyword">new</span> String[st.countTokens()];</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; st.hasMoreTokens(); i++)</span><br><span class="line">        cmdarray[i] = st.nextToken();</span><br><span class="line">    <span class="keyword">return</span> exec(cmdarray, envp, dir);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>其中将字符串形式的command参数使用<code>StringTokenizer</code>类进行实例化，<code>StringTokenizer</code>用于构造一个字符串分词器，它根据指定字符将字符串分成字符串数组，指定字符为：空格等字符（ascii十进制数值在32以下）、制表符（\t）、换行符（\n）、回车符（\r）、换页符（\f）</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/StringTokenizer.png" alt="StringTokenizer"></p>
+<p>我们先使用字符串形式传递command参数，进行调试</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei"</span>;</span><br><span class="line">        String chmodCmd = <span class="string">"/bin/chmod 777 "</span> + fileName;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>可以看到<code>/bin/chmod 777 /tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>被转换成cmdarray[6]，也就是<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/mkdir&quot;,&quot;/tmp/seikei&quot;]</code></p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/command-string.png" alt="command-string"></p>
+<p>我们再使用字符串数组的格式，对比一下两者的差别</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WorkspaceUtils</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String args[])</span> <span class="keyword">throws</span> Exception</span>&#123;</span><br><span class="line">        String fileName= <span class="string">"/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei"</span>;</span><br><span class="line">        String[] chmodCmd = <span class="keyword">new</span> String[]&#123;<span class="string">"/bin/chmod"</span>, <span class="string">"777"</span>, fileName&#125;;</span><br><span class="line">        Runtime.getRuntime().exec(chmodCmd);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>此时为cmdarray[3]，也就是<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei&quot;]</code>，这是Java命令执行中第一个需要注意的点。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/command-array.png" alt="command-array"></p>
+<p>不管传入的是字符串命令还是字符串数组命令，都会将传入的命令统一转换成cmdarray[]也就是字符串数组，之后再将转换成字符串数组的命令使用<code>ProcessBuilder</code>处理。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> Process <span class="title">exec</span><span class="params">(String[] cmdarray, String[] envp, File dir)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> ProcessBuilder(cmdarray)</span><br><span class="line">        .environment(envp)</span><br><span class="line">        .directory(dir)</span><br><span class="line">        .start();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>ProcessBuilder.start()</code>中又会调用<code>ProcessImpl.start()</code>，在<code>ProcessImpl.start()</code>中创建一个<code>UNIXProcess</code>（调试环境为Mac OS，所以是起一个Unix进程）执行命令。其中过程非常简单不过多赘述，需要注意的是<code>UNIXProcess</code>的参数，其中第一个参数<code>toCString(cmdarray[0])</code>就是我们传入的cmdarray数组中第一个元素，也就是需执行的命令。而cmdarray数组中剩余的元素则放在<code>argBlock</code>中。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/UNIXProcess.png" alt="UNIXProcess"></p>
+<p>也就是说只要我们无法控制被执行命令的第一个元素，就无法控制<code>Runtime.getRuntime().exec()</code>中执行的命令，因为后续的元素都将会是第一个元素所代表的命令的参数。</p>
+<p>就拿我们之前的命令举例：<code>/bin/chmod 777 /tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code></p>
+<p>若以字符串形式传入<code>Runtime.getRuntime().exec()</code>，会被解析成<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/mkdir&quot;,&quot;/tmp/seikei&quot;]</code></p>
+<p>此时，执行的命令是<code>/bin/chmod</code>，数组后面的所有元素都会被当作该<strong>命令的参数</strong>去执行，而不会因为<code>&amp;&amp;</code>而被解析成两条语句。这里特别需要理解<strong>命令的参数</strong>是什么意思？使用<code>man chmod</code>查看<code>chmod</code>命令的详细解释，其中<code>SYNOPSIS</code>中<code>chmod</code>后面的内容都是参数。</p>
+<p><img src="/2020/07/18/Java-Runtime.getRuntime.exec/man-chmod.png" alt="man-chmod"></p>
+<p>此时<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/mkdir&quot;,&quot;/tmp/seikei&quot;]</code>仅仅执行到了<code>/bin/chmod 777 /tmp/test1.txt</code>，后面的<code>&amp;&amp; /bin/mkdir /tmp/seikei</code>会被认为是错误的语法而不执行。</p>
+<p>但是在第二个测试案例<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test2.txt&quot;]</code>中<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>都是存在的，因为命令存在一定的容错性，所以等于执行的是<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt&quot;,&quot;/tmp/test2.txt&quot;]</code>，也就是将<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>的权限同时改为777。</p>
+<p>第三个测试案例<code>[&quot;/bin/chmod&quot;,&quot;644&quot;,&quot;/tmp/test1.txt&quot;,&quot;&amp;&amp;&quot;,&quot;/bin/chmod&quot;,&quot;700&quot;,&quot;/tmp/test2.txt&quot;]</code>也就将<code>/tmp/test1.txt</code>和<code>/tmp/test2.txt</code>的权限同时改为644，而不是一个644，一个700。因为<code>[&quot;&amp;&amp;&quot;,&quot;/bin/chmod&quot;,&quot;700&quot;]</code>在这里是没有起到任何作用的。</p>
+<p>我们再来看若命令以数组形式传递进来，<code>[&quot;/bin/chmod&quot;,&quot;777&quot;,&quot;/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei&quot;]</code></p>
+<p>此时<code>/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>会被当作file参数，也就是更改<code>/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>这个文件的权限，但是<code>/tmp/test1.txt &amp;&amp; /bin/mkdir /tmp/seikei</code>该文件是不存在的，因为有空格和<code>&amp;</code>符号，所以执行不会有结果。</p>
+<p>那么，只要Java中的<code>Runtime.getRuntime().exec()</code>第一个字段不可控，就一定不会造成危害吗？</p>
+<p>不是的，还可以考虑该命令是否存在参数注入的问题。若第一个字段是执行bash命令，也可以尝试base64等编码形式同时执行多条语句。</p>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><p>由于Java的安全设计，已经尽可能规避了命令执行的风险。执行命令时仅仅将命令数组中第一个元素作为操作系统的进程去执行，其后全部元素都是该进程的参数。</p>
+<p>若是使用数组形式传递命令，数组中单个元素只作为单一参数去执行，不会因为空格等字符就分开执行。</p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/07/18/Java-Runtime.getRuntime.exec/" data-id="ckcsyyw3s0006ccje86a2goq9" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+    
+      <a href="/2020/07/06/CVE-2020-5902-F5-BigIP-TMUI/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">CVE-2020-5902 F5 BIG-IP TMUI 远程代码执行漏洞</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>
