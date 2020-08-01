@@ -1057,21 +1057,21 @@
 <p>例如传入<code>/api/list?current=7&amp;size=77&amp;ascs=seikei&amp;descs=s31k31</code>时，<code>query</code>中参数分别被赋值成<code>Query(current=7, size=77, ascs=seikei, descs=create_time)</code></p>
 <p>调试过程中<code>query</code>中的变量如下</p>
 <p><img src="/2020/08/01/SpringBlade_SQLi/query-variables.png" alt="query-variables"></p>
-<p>回到<code>list</code>方法，其中第二行，将<code>query</code>传入<code>Condition</code>，其中<code>query.setDescs</code>被设置为<code>create_time</code>，所以descs参数就不可控了</p>
+<p>回到<code>list</code>方法，其中第二行，将<code>query</code>传入<code>Condition</code>，其中<code>query.setDescs</code>被设置为<code>create_time</code>，所以<code>descs</code>参数就不可控了</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line">IPage&lt;LogApi&gt; pages = logService.page(Condition.getPage(query.setDescs(<span class="string">"create_time"</span>)), Condition.getQueryWrapper(log, LogApi<span class="class">.<span class="keyword">class</span>))</span>;</span><br></pre></td></tr></table></figure>
 
-<p>调试追到<code>Condition</code>中可以看到<code>query</code>的值，<code>descs</code>被置为<code>create_time</code>，ascs还是我们传入的值</p>
+<p>调试追到<code>Condition</code>中可以看到<code>query</code>的值，<code>descs</code>被置为<code>create_time</code>，<code>ascs</code>还是我们传入的值</p>
 <p><img src="/2020/08/01/SpringBlade_SQLi/condition-query.png" alt="condition-query"></p>
 <p><code>Condition.IPage()</code>方法中第二、三行有个<code>SqlKeyword.filter()</code>，其中过滤了一些常见的SQL注入关键字，但是非常容易绕过</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">filter</span><span class="params">(String param)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> param == <span class="keyword">null</span> ? <span class="keyword">null</span> : param.replaceAll(<span class="string">"(?i)'|%|--|insert|delete|select|count|group|union|drop|truncate|alter|grant|execute|exec|xp_cmdshell|call|declare|sql"</span>, <span class="string">""</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 
 
-<p><code>Condition</code>被赋值之后到<code>logService.page()</code>，追到LogAPIService，<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/service/impl/LogApiServiceImpl.java</code></p>
+<p><code>Condition</code>被赋值之后到<code>logService.page()</code>，追到<code>LogAPIService</code>，<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/service/impl/LogApiServiceImpl.java</code></p>
 <p>但是service中没有任何内容</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Service</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">LogApiServiceImpl</span> <span class="keyword">extends</span> <span class="title">ServiceImpl</span>&lt;<span class="title">LogApiMapper</span>, <span class="title">LogApi</span>&gt; <span class="keyword">implements</span> <span class="title">ILogApiService</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>再看看LogApiMapper（<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/mapper/LogApiMapper.java</code>），同样其中也没什么内容</p>
+<p>再看看<code>LogApiMapper</code>（<code>SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/mapper/LogApiMapper.java</code>），同样其中也没什么内容</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">interface</span> <span class="title">LogApiMapper</span> <span class="keyword">extends</span> <span class="title">BaseMapper</span>&lt;<span class="title">LogApi</span>&gt; </span>&#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 <p><code>/SpringBlade/blade-service/blade-log/src/main/java/org/springblade/core/log/mapper/LogApiMapper.xml</code></p>
@@ -1188,7 +1188,7 @@
 <p>初步构造好SQL语句之后，通过<code>page</code>和<code>queryWrapper</code>获取到其他需要的值，构造出<code>order by</code>后的内容</p>
 <figure class="highlight"><table><tr><td class="code"><pre><span class="line">ORDER BY ascs ASC, create_time DESC LIMIT current*size,size</span><br></pre></td></tr></table></figure>
 
-<p>当<code>ascs</code>或<code>descs</code>中有逗号时，Mybatis Plus会以逗号为分隔符，分成多段，并在后面添加<code>ASC</code>。</p>
+<p>当<code>ascs</code>或<code>descs</code>中有逗号时，Mybatis Plus会以逗号为分隔符，分成多段，并在每段后面添加<code>ASC</code>。</p>
 <p>比如传入<code>ascs=if(1=1,sleep(1),2)</code>时，构造出来的语句为<code>ORDER BY if(1=1 ASC, sleep(1) ASC, 2) ASC</code></p>
 <p>所以在注入时不能使用逗号，否则会导致SQL语句出错。</p>
 <br>
