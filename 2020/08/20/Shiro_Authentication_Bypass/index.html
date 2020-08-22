@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>
+    Shiro权限验证绕过史 |
+    
+    Seikei&#39;s Blog</title>
+  
+    <link rel="shortcut icon" href="/favicon.ico">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<script src="/js/pace.min.js"></script>
+
+<meta name="generator" content="Hexo 4.2.1"></head>
+
+<body>
+<main class="content">
+  <section class="outer">
+  <article id="post-Shiro_Authentication_Bypass" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+    
+    <div class="article-inner">
+        
+            <header class="article-header">
+                
+  
+    <h1 class="article-title" itemprop="name">
+      Shiro权限验证绕过史
+    </h1>
+  
+  
+
+
+
+
+            </header>
+            
+
+                
+                    <div class="article-meta">
+                        <a href="/2020/08/20/Shiro_Authentication_Bypass/" class="article-date">
+  <time datetime="2020-08-19T16:00:00.000Z" itemprop="datePublished">2020-08-20</time>
+</a>
+                            
+                    </div>
+                    
+
+                        
+                            
+    <div class="tocbot"></div>
+
+
+
+
+
+                                
+
+                                    <div class="article-entry" itemprop="articleBody">
+                                        
+
+
+                                            
+
+                                                
+                                                                    <p>今年以来，shiro连续曝出多个身份验证绕过漏洞，在此梳理一下shiro身份验证绕过漏洞史。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/shiro-security-reports.png" alt="shiro-security-reports"></p>
+<a id="more"></a>
+
+<p>来自<a href="https://shiro.apache.org/security-reports.html" target="_blank" rel="noopener">shiro安全通告</a> </p>
+<h1 id="SHIRO介绍"><a href="#SHIRO介绍" class="headerlink" title="SHIRO介绍"></a>SHIRO介绍</h1><p>很多人认识Shiro是因为其反序列化漏洞的广泛性和严重性。Shiro本身是一个常用的Java安全框架，用于执行身份验证、授权、密码和会话管理功能，有着易用、全面、灵活等特性，shiro被广泛使用。通常Shiro会和Spring等框架一起搭配用于Web应用系统的开发。</p>
+<p>因为其本身就用于身份验证和权限控制，出现身份验证绕过的问题是比较严重的，CVSS给的评分就比较高</p>
+<blockquote>
+<p>CVE-2020-1957 CVSS 3.x 评分 9.8，CVSS 2.0评分 7.5</p>
+<p>CVE-2020-11989 CVSS 3.x 评分 9.8，CVSS 2.0评分 7.5</p>
+<p>CVE-2020-13933 CVSS 目前还未评分，后续补上</p>
+</blockquote>
+<p>Shiro是基于URI的权限认证，配置的url模式使用Ant风格模式。Ant路径通过通配符支持“?”、“*”、“**”。</p>
+<p>对于“?”，其匹配一个字符串。如“/admin?”将匹配“admin1”，但不匹配“/admin”或“/admin/”。</p>
+<p>对于“*”，其匹配零个或多个字符串。如“/admin/*”将匹配“/admin/”、“/admin/abc”，但不匹配“/admin/a/b”。</p>
+<p>对于“**”，其匹配路径中的零个或多个路径。如“/admin/**”将匹配“/admin/a”或“/admin/a/b”。</p>
+<br>
+
+<p>常用的拦截器配置：</p>
+<p>anon(anonymous)拦截器表示匿名访问(既不需要登录即可访问)。</p>
+<p>authc(authentication)拦截器表示需要身份认证过后才能访问。</p>
+<p>拦截器的匹配顺序采取第一次匹配优先的方式，即从头开始使用第一个匹配的url模式对应的拦截器链。</p>
+<br>
+
+<p>例如在配置中存在如下配置：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Map&lt;String, String&gt; map = <span class="keyword">new</span> LinkedHashMap&lt;&gt;();</span><br><span class="line">map.put(<span class="string">"/doLogin"</span>, <span class="string">"anon"</span>);</span><br><span class="line">map.put(<span class="string">"/admin/*"</span>, <span class="string">"authc"</span>);</span><br><span class="line">map.put(<span class="string">"/manage/*"</span>, <span class="string">"authc"</span>);</span><br></pre></td></tr></table></figure>
+
+<p><code>/doLogin</code>可以直接被访问，而<code>/admin/*</code>和<code>/manage/*</code>需要进行身份认证。</p>
+<h1 id="SHIRO搭建"><a href="#SHIRO搭建" class="headerlink" title="SHIRO搭建"></a>SHIRO搭建</h1><p>测试Demo：<a href="https://github.com/s31k31/shiro-simple-example" target="_blank" rel="noopener">https://github.com/s31k31/shiro-simple-example</a> </p>
+<p>导入IDE，等待maven配置加载完成，点击运行/调试即可启动。</p>
+<p>需测试不同版本的shiro时，在pom.xml文件中修改shiro版本即可。</p>
+<p><code>src/main/resources/application.properties</code>中配置的端口为8011，<code>context path</code>为<code>/shiro</code>，有需要可以自行更改。</p>
+<h1 id="SHIRO-682"><a href="#SHIRO-682" class="headerlink" title="SHIRO-682"></a>SHIRO-682</h1><p><a href="https://issues.apache.org/jira/browse/SHIRO-682" target="_blank" rel="noopener">https://issues.apache.org/jira/browse/SHIRO-682</a> </p>
+<p>在2019年3月，中国开发者<a href="https://github.com/tomsun28" target="_blank" rel="noopener">tomsun08</a>在shiro项目中提出<a href="https://github.com/apache/shiro/pull/127" target="_blank" rel="noopener">PR</a></p>
+<blockquote>
+<p>在Spring web中<code>/resource/menus</code>和 <code>resource/menus/</code>都能访问到同一资源。</p>
+<p>而shiro中的<code>pathPattern</code>只能匹配<code>/resource/menus</code>，而不能匹配 <code>/resource/menus/</code>。</p>
+<p>用户使用<code>requestURI + &quot;/&quot;</code>就能绕过权限控制。</p>
+</blockquote>
+<p>但直到2019年11月，在shiro 1.5.0中修复这一问题。修改的代码在<a href="https://github.com/apache/shiro/pull/127/commits/e61a29cd6ad4724cf9d85c463103c01f6bafdc44" target="_blank" rel="noopener">commit</a></p>
+<p>tomsum08不是专门的安全研究人员，所以当时仅对URI最后的<code>/</code>做了处理。若URI最后为<code>/</code>，则去掉该<code>/</code>。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/code-compare-pathmatchingfilterchainresolver.png" alt="code-compare-pathmatchingfilterchainresolver"></p>
+<p>这处改动的并非真正漏洞核心，漏洞本质是Spring处理URI和Shiro处理URI不一致导致的。</p>
+<p>Spring处理URI和Shiro处理URI不一致性才是导致后续多个漏洞曝出的真正原因。</p>
+<br>
+
+<h1 id="CVE-2020-1957"><a href="#CVE-2020-1957" class="headerlink" title="CVE-2020-1957"></a>CVE-2020-1957</h1><p>漏洞存在于1.5.2版本之前，复现时将<code>pom.xml</code>中的shiro版本设置为1.5.2版本之前，如下设置为1.5.1</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.apache.shiro<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>shiro-web<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">version</span>&gt;</span>1.5.1<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.apache.shiro<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>shiro-spring<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">version</span>&gt;</span>1.5.1<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="漏洞复现"><a href="#漏洞复现" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><p>访问：<a href="http://localhost:8011/shiro/admin/page" target="_blank" rel="noopener">http://localhost:8011/shiro/admin/page</a> ，此时跳转登录页面</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request-normal.png" alt="burp-request-normal"></p>
+<br>
+
+<p>访问：<a href="http://localhost:8011/shiro/xxxx/..;/admin/page" target="_blank" rel="noopener">http://localhost:8011/shiro/xxxx/..;/admin/page</a> ，成功绕过身份校验</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request-bypass.png" alt="burp-request-bypass"></p>
+<h2 id="漏洞分析"><a href="#漏洞分析" class="headerlink" title="漏洞分析"></a>漏洞分析</h2><p>shiro配置规则</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Map&lt;String, String&gt; map = <span class="keyword">new</span> LinkedHashMap&lt;&gt;();</span><br><span class="line">map.put(<span class="string">"/doLogin"</span>, <span class="string">"anon"</span>);</span><br><span class="line">map.put(<span class="string">"/admin/*"</span>, <span class="string">"authc"</span>);</span><br><span class="line">map.put(<span class="string">"/manage/**"</span>, <span class="string">"authc"</span>);</span><br></pre></td></tr></table></figure>
+
+<br>
+
+<p><code>org.apache.shiro.web.filter.mgt.PathMatchingFilterChainResolver#getChain</code>是shiro判断输入的URI是否匹配拦截器的函数。匹配成功将返回相应的拦截器，进行对应的权限操作。</p>
+<p>当我们传入<code>/shiro/admin/page</code>时（<code>/shiro</code>在此属于context path，不会被当作URI），会匹配到<code>/admin/*</code>这条规则，从而进行authc，也就是到<code>org/apache/shiro/web/filter/authc/AuthenticatingFilter.java</code>中去判断权限。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-getchain-pathpattern.png" alt="debug-getchain-pathpattern"></p>
+<br>
+
+<p>但当我们传入<code>/shiro/xxxx/..;/admin/page</code>时，shiro获取到的URI是<code>/xxxx/..</code>，注意这里shiro移除了<code>;</code>后面的内容。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-getchain-requesturi.png" alt="debug-getchain-requesturi"></p>
+<br>
+
+<p>我们跟进<code>getPathWithinApplication()</code>中进一步查看，最终调用的是<code>org.apache.shiro.web.util.WebUtils#getPathWithinApplication</code>，可以看到<code>requestUri</code>是通过<code>getRequestUri()</code>方法获取得到的</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-getpathwithinapplication.png" alt="debug-getpathwithinapplication"></p>
+<p><code>getRequestUri()</code>代码如下，根据<code>request.getRequestURI()</code>获取的uri，传入<code>decodeAndCleanUriString()</code>方法。关于<code>request.getRequestURI</code>带来的安全问题可查看<a href="https://joychou.org/web/security-of-getRequestURI.html" target="_blank" rel="noopener">这篇文章</a>。</p>
+<p><code>decodeAndCleanUriString()</code>方法对<code>;</code>后面的内容进行删除，只获取<code>;</code>前的内容。所以我们传入的<code>/xxxx/..;/admin/page</code>，在shiro中得到的只是<code>/xxxx/..</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">getRequestUri</span><span class="params">(HttpServletRequest request)</span> </span>&#123;</span><br><span class="line">	String uri = (String) request.getAttribute(INCLUDE_REQUEST_URI_ATTRIBUTE);</span><br><span class="line">	<span class="keyword">if</span> (uri == <span class="keyword">null</span>) &#123;</span><br><span class="line">		uri = request.getRequestURI();</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> normalize(decodeAndCleanUriString(request, uri));</span><br><span class="line">&#125;</span><br><span class="line">    </span><br><span class="line">...</span><br><span class="line">    </span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">static</span> String <span class="title">decodeAndCleanUriString</span><span class="params">(HttpServletRequest request, String uri)</span> </span>&#123;</span><br><span class="line">	uri = decodeRequestString(request, uri);</span><br><span class="line">	<span class="keyword">int</span> semicolonIndex = uri.indexOf(<span class="string">';'</span>);</span><br><span class="line">	<span class="keyword">return</span> (semicolonIndex != -<span class="number">1</span> ? uri.substring(<span class="number">0</span>, semicolonIndex) : uri);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>/xxxx/..</code>没有匹配到shiro配置中的规则，默认放行。</p>
+<p>但在spring web处理<code>/shiro/xxxx/..;/admin/page</code>时，Spring对<code>..;/</code>是包容的，会被当成<code>../</code>处理，所以最后访问的是<code>/shiro/admin/page</code>。</p>
+<p>当然<code>/shiro/xxxx;/../admin/page</code>同样能绕过身份验证</p>
+<p>这就是由于shiro和spring对URL处理的不一致导致的第一个漏洞，后续的CVE-2020-11989和CVE-2020-13933属于同一类问题。</p>
+<h2 id="漏洞修复"><a href="#漏洞修复" class="headerlink" title="漏洞修复"></a>漏洞修复</h2><p>漏洞修复代码在此<a href="https://github.com/apache/shiro/commit/3708d7907016bf2fa12691dff6ff0def1249b8ce#diff-98f7bc5c0391389e56531f8b3754081a" target="_blank" rel="noopener">commit</a>，将<code>request.getRequestURI()</code>改成了<code>request.getContextPath()+&quot;/&quot;+request.getServletPath()+request.getPathInfo()</code></p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/code-compare-webutils.png" alt="code-compare-webutils"></p>
+<br>
+
+<p><code>getServletPath</code>得到的是实际Servlet路径，无法利用路径回溯<code>../</code>和分号<code>;</code>绕过。</p>
+<p>在shiro1.5.2版本中，传入<code>/shiro/xxxx/..;/admin/page</code>，得到的结果是<code>/shiro//admin/page</code></p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-getrequesturi.png" alt="debug-getrequesturi"></p>
+<br>
+
+<h1 id="CVE-2020-11989"><a href="#CVE-2020-11989" class="headerlink" title="CVE-2020-11989"></a>CVE-2020-11989</h1><p>该漏洞由淚笑向 Apache Shiro 官方报告的<a href="https://issues.apache.org/jira/browse/SHIRO-782?jql=project%20%3D%20SHIRO" target="_blank" rel="noopener">漏洞</a>。</p>
+<p>漏洞存在于1.5.3版本之前，复现时将<code>pom.xml</code>中的shiro版本设置为1.5.2版本</p>
+<h2 id="漏洞复现-1"><a href="#漏洞复现-1" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><p>在CVE-2020-1957中的漏洞修复中提到<code>request.getServletPath</code>只返回Servlet实际的路径，但是<code>request.getContextPath</code>是能获取到分号<code>;</code>的。</p>
+<p>于是访问：<a href="http://localhost:8011/shiro;/admin/page" target="_blank" rel="noopener">http://localhost:8011/shiro;/admin/page</a> 或 <a href="http://localhost:8011/;/shiro/admin/page" target="_blank" rel="noopener">http://localhost:8011/;/shiro/admin/page</a> ，实现绕过。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request2-bypass.png" alt="burp-request2-bypass"></p>
+<h2 id="漏洞分析-1"><a href="#漏洞分析-1" class="headerlink" title="漏洞分析"></a>漏洞分析</h2><p>当传入<code>/shiro;/admin/page</code>时，<code>request.getContextPath</code>得到的是<code>/shiro;/</code>，<code>request.getServletPath</code>得到的是<code>/admin/page</code></p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-getrequesturi2.png" alt="debug-getrequesturi2"></p>
+<p><code>decodeAndCleanUriString</code>方法中的代码没有变动，还是删除<code>;</code>后面的内容进行，只获取<code>;</code>前的内容。</p>
+<p>最后shiro得到的URI是<code>/shiro;</code>，不会匹配到身份认证校验规则，默认放行。</p>
+<p>⚠️：<em>该绕过方式一定需要有context path的配置，如果没有系统没有设置context path，<code>request.getContextPath</code>默认为空。</em></p>
+<br>
+
+<p>除此之外，腾讯玄武实验室的Ruilin发现<a href="https://xlab.tencent.com/cn/2020/06/30/xlab-20-002/" target="_blank" rel="noopener">另一个绕过方法</a>。</p>
+<p>shiro配置的规则</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">map.put(&quot;&#x2F;manage&#x2F;*&quot;, &quot;authc&quot;);</span><br></pre></td></tr></table></figure>
+
+<p>对应的Controller</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/manage/&#123;name&#125;"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">manageName</span><span class="params">(@PathVariable String name)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"manage: "</span>+name;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<br>
+
+<p><a href="http://localhost:8011/shiro/manage/test" target="_blank" rel="noopener">http://localhost:8011/shiro/manage/test</a></p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request3-normal.png" alt="burp-request3-normal"></p>
+<br>
+
+<p><a href="http://localhost:8011/shiro/manage/test%25%32%46test" target="_blank" rel="noopener">http://localhost:8011/shiro/manage/test%25%32%46test</a></p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request3-bypass.png" alt="burp-request3-bypass"></p>
+<br>
+
+<p>原因是在<code>decodeAndCleanUriString()</code>方法中存在<code>decodeRequestString</code>用于URL解码。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">static</span> String <span class="title">decodeAndCleanUriString</span><span class="params">(HttpServletRequest request, String uri)</span> </span>&#123;</span><br><span class="line">	uri = decodeRequestString(request, uri);</span><br><span class="line">	<span class="keyword">int</span> semicolonIndex = uri.indexOf(<span class="string">';'</span>);</span><br><span class="line">	<span class="keyword">return</span> (semicolonIndex != -<span class="number">1</span> ? uri.substring(<span class="number">0</span>, semicolonIndex) : uri);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>shiro二次解码得到的是<code>/shiro/manage/test/test</code>，因为鉴权规则设置的是<code>/manage/*</code>一个星号，只匹配一层目录，<code>/shiro/manage/test/test</code>，算是两层目录，也就不属于<code>/manage/*</code>。而Spring解析时只会将URI解码一次，得到的是<code>/shiro/manage/test%2ftest</code>，从而绕过访问。</p>
+<p>该绕过的场景更严苛一些，可利用场景稍少。</p>
+<h2 id="漏洞修复-1"><a href="#漏洞修复-1" class="headerlink" title="漏洞修复"></a>漏洞修复</h2><p>官方更改了URI的获取逻辑，使用移除分号后的<code>request.getRequestURI</code>和<code>request.getPathInfo()</code>进行URI拼接。并且没有用<code>decodeAndCleanUriString()</code>方法处理URI，避免了二次URL解码。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/code-compare-webutils2.png" alt="code-compare-webutils2"></p>
+<br>
+
+<h1 id="CVE-2020-13933"><a href="#CVE-2020-13933" class="headerlink" title="CVE-2020-13933"></a>CVE-2020-13933</h1><p>该漏洞由蚂蚁非攻实验室codeplutos提交，具体可看<a href="https://lists.apache.org/thread.html/r539f87706094e79c5da0826030384373f0041068936912876856835f%40%3Cdev.shiro.apache.org%3E" target="_blank" rel="noopener">这里</a>。其中说到新增了<code>Global Filter</code>来缓解该漏洞。</p>
+<p>漏洞存在于1.6.0版本之前，复现时将<code>pom.xml</code>中的shiro版本设置为1.5.3版本，该漏洞触发条件稍微苛刻一些，也是需要将请求映射成路径变量的形式。</p>
+<h2 id="漏洞复现-2"><a href="#漏洞复现-2" class="headerlink" title="漏洞复现"></a>漏洞复现</h2><p>Controller对应代码：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/manage/&#123;name&#125;"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">manageName</span><span class="params">(@PathVariable String name)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> <span class="string">"manage: "</span>+name;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>访问：<a href="http://localhost:8011/shiro/manage/index" target="_blank" rel="noopener">http://localhost:8011/shiro/manage/index</a> ，302跳转到登录页面</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request4-normal.png" alt="burp-request4-normal"></p>
+<p>访问：<a href="http://localhost:8011/shiro/manage/%3Bindex" target="_blank" rel="noopener">http://localhost:8011/shiro/manage/%3Bindex</a> ，绕过身份验证</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request4-bypass.png" alt="burp-request4-bypass"></p>
+<h2 id="漏洞分析-2"><a href="#漏洞分析-2" class="headerlink" title="漏洞分析"></a>漏洞分析</h2><p>查看漏洞修复的<a href="https://github.com/apache/shiro/commit/dc194fc977ab6cfbf3c1ecb085e2bac5db14af6d" target="_blank" rel="noopener">commit</a>，其中新增了一个全局过滤器，路径为<code>web/src/main/java/org/apache/shiro/web/filter/InvalidRequestFilter.java</code>，该过滤器对分号<code>;</code>、反斜杠<code>\</code>、和ascii不可打印字符的处理。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> List&lt;String&gt; SEMICOLON = Collections.unmodifiableList(Arrays.asList(<span class="string">";"</span>, <span class="string">"%3b"</span>, <span class="string">"%3B"</span>));</span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> List&lt;String&gt; BACKSLASH = Collections.unmodifiableList(Arrays.asList(<span class="string">"\\"</span>, <span class="string">"%5c"</span>, <span class="string">"%5C"</span>));</span><br><span class="line">...</span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">boolean</span> <span class="title">containsOnlyPrintableAsciiCharacters</span><span class="params">(String uri)</span> </span>&#123;</span><br><span class="line">	...</span><br><span class="line">	<span class="keyword">if</span> (c &lt; <span class="string">'\u0020'</span> || c &gt; <span class="string">'\u007e'</span>) &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">isAccessAllowed</span><span class="params">(ServletRequest request, ServletResponse response, Object mappedValue)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	String uri = WebUtils.toHttp(request).getRequestURI();</span><br><span class="line">	<span class="keyword">return</span> !containsSemicolon(uri)</span><br><span class="line">		&amp;&amp; !containsBackslash(uri)</span><br><span class="line">		&amp;&amp; !containsNonAsciiCharacters(uri);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">boolean</span> <span class="title">onAccessDenied</span><span class="params">(ServletRequest request, ServletResponse response)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	WebUtils.toHttp(response).sendError(<span class="number">400</span>, <span class="string">"Invalid request"</span>);</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>当<code>WebUtils.toHttp(request).getRequestURI()</code>获取到的URI存在分号<code>;</code>、反斜杠<code>\</code>、ascii不可打印字符时，抛出400错误。</p>
+<p>当我们传入<code>/manage/%3Bindex</code>时，shiro得到的是<code>/manage/</code></p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-evaluate.png" alt="debug-evaluate"></p>
+<p>而spring得到的是<code>/manage/;index</code>，<code>;index</code>作为<code>{name}</code>参数</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/debug-spring-getlookuppathforrequest.png" alt="debug-spring-getlookuppathforrequest"></p>
+<p>所以能绕过shiro的身份认证</p>
+<h2 id="漏洞修复-2"><a href="#漏洞修复-2" class="headerlink" title="漏洞修复"></a>漏洞修复</h2><p>把shiro版本设置成1.6.0，再次访问，此时URI中存在分号<code>;</code>，返回400错误。</p>
+<p><img src="/2020/08/20/Shiro_Authentication_Bypass/burp-request5-normal.png" alt="burp-request5-normal"></p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://shiro.apache.org/security-reports.html" target="_blank" rel="noopener">https://shiro.apache.org/security-reports.html</a></p>
+<p><a href="https://l3yx.github.io/2020/06/30/Shiro-%E6%9D%83%E9%99%90%E7%BB%95%E8%BF%87%E6%BC%8F%E6%B4%9E-CVE-2020-11989/" target="_blank" rel="noopener">https://l3yx.github.io/2020/06/30/Shiro-权限绕过漏洞-CVE-2020-11989/</a></p>
+<p><a href="https://xlab.tencent.com/cn/2020/06/30/xlab-20-002/" target="_blank" rel="noopener">https://xlab.tencent.com/cn/2020/06/30/xlab-20-002/</a></p>
+<p><a href="https://lists.apache.org/thread.html/r539f87706094e79c5da0826030384373f0041068936912876856835f%40%3Cdev.shiro.apache.org%3E" target="_blank" rel="noopener">https://lists.apache.org/thread.html/r539f87706094e79c5da0826030384373f0041068936912876856835f%40%3Cdev.shiro.apache.org%3E</a></p>
+
+                                                                        
+                                    </div>
+                                    <footer class="article-footer">
+                                        <!--<a data-url="http://s31k31.github.io/2020/08/20/Shiro_Authentication_Bypass/" data-id="cke5cjsfj000et1jg2p89fiyc" class="article-share-link">
+                                            分享
+                                        </a> -->
+                                        
+                                    </footer>
+
+    </div>
+
+    
+        
+  <nav class="article-nav">
+    
+    
+      <a href="/2020/08/01/SpringBlade_SQLi/" class="article-nav-link">
+        <strong class="article-nav-caption">后一篇</strong>
+        <div class="article-nav-title">SpringBlade中“隐藏”的SQL注入</div>
+      </a>
+    
+  </nav>
+
+
+            
+
+                
+                    
+                        
+                            
+
+</article>
+</section>
+  <footer class="footer">
+  <div class="outer">
+    <ul class="list-inline">
+      <li>&copy; 2020 Seikei&#39;s Blog</li>
+    </ul>
+  </div>
+</footer>
+
+</main>
+<aside class="sidebar">
+  <button class="navbar-toggle"></button>
+<nav class="navbar">
+  
+    <div class="logo">
+      <a href="/"><img src="/images/seikei.jpg" alt="Seikei&#39;s Blog"></a>
+    </div>
+  
+  <ul class="nav nav-main">
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/">Home</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="/archives">Archives</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="https://github.com/s31k31" target="_blank" rel="noopener">Github</a>
+      </li>
+    
+      <li class="nav-item">
+        <a class="nav-item-link" href="mailto:s31k31@gmail.com">Email</a>
+      </li>
+    
+    <li class="nav-item">
+      <a class="nav-item-link nav-item-search" title="搜索">
+        <i class="fe fe-search"></i>
+        搜索
+      </a>
+    </li>
+  </ul>
+</nav>
+<nav class="navbar navbar-bottom">
+  <ul class="nav">
+    <li class="nav-item">
+      <div class="totop" id="totop">
+  <i class="fe fe-rocket"></i>
+</div>
+    </li>
+    <li class="nav-item">
+      
+    </li>
+  </ul>
+</nav>
+<div class="search-form-wrap">
+  <div class="local-search local-search-plugin">
+  <input type="search" id="local-search-input" class="local-search-input" placeholder="Search...">
+  <div id="local-search-result" class="local-search-result"></div>
+</div>
+</div>
+</aside>
+
+<script src="/js/jquery-2.0.3.min.js"></script>
+
+
+<script src="/js/jquery.justifiedGallery.min.js"></script>
+
+
+<script src="/js/lazyload.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  
+<script src="/js/tocbot.min.js"></script>
+
+  <script>
+    // Tocbot_v4.7.0  http://tscanlin.github.io/tocbot/
+    tocbot.init({
+      tocSelector: '.tocbot',
+      contentSelector: '.article-entry',
+      headingSelector: 'h1, h2, h3, h4, h5, h6',
+      hasInnerContainers: true,
+      scrollSmooth: true,
+      positionFixedSelector: '.tocbot',
+      positionFixedClass: 'is-position-fixed',
+      fixedSidebarOffset: 'auto',
+    });
+  </script>
+
+
+
+<script src="/js/ocean.js"></script>
+
+
+</body>
+</html>
