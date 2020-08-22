@@ -1946,4 +1946,95 @@
 <p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
 ]]></content>
   </entry>
+  <entry>
+    <title>Spring中请求URL找到相应Controller的过程</title>
+    <url>/2020/08/22/Spring_URL2Controller/</url>
+    <content><![CDATA[<p>我把Spring请求URL找到相应Controller的过程调试了一遍，在此记录该过程，属于个人记录，其中很可能存在某些不细致甚至错误的地方，还请见谅。</p>
+<p>代码版本为<code>spring-webmvc-5.2.5.RELEASE-sources.jar</code></p>
+<a id="more"></a>
+
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><p>分析入口：<code>org.springframework.web.servlet.DispatcherServlet#doDispatch</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/doDispatch.png" alt="doDispatch"></p>
+<p>跟进<code>getHandler</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getHandler.png" alt="getHandler"></p>
+<p>再跟进<code>mapping.getHandler</code>，它是一个<code>interface</code>，此处由<code>AbstractHandlerMapping</code>实现该方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/mapping.handler.png" alt="mapping.handler"></p>
+<p>点击148行右侧的绿色图标，跳转到<code>AbstractHandlerMapping#getHandler</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/AbstractHandlerMapping.getHandler.png" alt="AbstractHandlerMapping.getHandler"></p>
+<p>此处<code>getHandlerIngernal</code>是一个抽象方法，在<code>AbstractHandlerMethodMapping#getHandlerInternal</code>中实现了该抽象方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal.png" alt="getHandlerInternal"></p>
+<h2 id="getLookupPathForRequest"><a href="#getLookupPathForRequest" class="headerlink" title="getLookupPathForRequest"></a>getLookupPathForRequest</h2><p>重点在此，<code>getUrlPathHelper().getLookupPathForRequest(request)</code>中从请求中获取代码中对应的path，可以在此下断点进行调试，详细了解Spring是怎么获取请求路径的。</p>
+<p>传入<code>http://localhost/shiro/admin;////..;/manage/page/index</code>进行调试（如果此时传入正常的URL，则<code>getPathWithinServletMapping</code>方法会返回空字符串，再到<code>else</code>中的<code>getPathWithinAPPlication</code>方法）</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getLookupPathForRequest.png" alt="getLookupPathForRequest"></p>
+<p>跟进<code>getPathWithinServletMapping</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping.png" alt="getPathWithinServletMapping"></p>
+<h3 id="getPathWithinApplication"><a href="#getPathWithinApplication" class="headerlink" title="getPathWithinApplication"></a>getPathWithinApplication</h3><p>首先来看<code>getPathWithinApplication</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinApplication.png" alt="getPathWithinApplication"></p>
+<p>其中<code>getContextPath</code>为获取Context path，不做重点分析，重点来看<code>getRequestUri</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getRequestUri.png" alt="getRequestUri"></p>
+<p><code>request.getRequestURI()</code>得到的是<code>/shiro/admin;////..;/manage/page/index</code>，继续跟进<code>decodeAndCleanUriString</code>方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/decodeAndCleanUriString.png" alt="decodeAndCleanUriString"></p>
+<p><code>decodeAndCleanUriString</code>方法对<code>uri</code>进行了三种处理</p>
+<p>(1) 移除两个<code>/</code>间，分号和分号后的内容，得到<code>/shiro/admin////../manage/page/index</code></p>
+<p>（例如传入<code>/admin;random/page;jsessionid=1111</code>，会得到<code>/admin/page/</code>）</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/removeSemicolonContent.png" alt="removeSemicolonContent"></p>
+<p>(2) URL解码（URL解码没什么好说的）</p>
+<p>(3) 移除多余的<code>/</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getSanitizedPath.png" alt="getSanitizedPath"></p>
+<p>经过以上处理，最终得到的uri是<code>/shiro/admin/../manage/page/index</code></p>
+<p>回到<code>getPathWithinApplication</code>方法，其中<code>getRemainingPath</code>方法将移除<code>requestUri</code>中和<code>contextPath</code>中相同的字段（在此是<code>/shiro</code>），得到<code>/admin/../manage/page/index</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinApplication2.png" alt="getPathWithinApplication2"></p>
+<h3 id="getServletPath"><a href="#getServletPath" class="headerlink" title="getServletPath"></a>getServletPath</h3><p>也就是通过<code>request.getServletPath()</code>获取Servlet路径，得到<code>/manage/page/index</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getServletPath.png" alt="getServletPath"></p>
+<h3 id="getPathWithinApplication-2"><a href="#getPathWithinApplication-2" class="headerlink" title="getPathWithinApplication 2"></a>getPathWithinApplication 2</h3><p>经过以上代码，回到<code>getPathWithinApplication</code>。其中第218行<code>sanitizedPathWithinApp</code>变量，再次移除多余的<code>/</code>，uri在此无变化。</p>
+<p>之后存在一个if判断，当<code>sanitizedPathWithinApp</code>不是<code>servletPath</code>的子集时，<code>path</code>等于<code>getRemainingPath(pathWithinApp, servletPath, false)</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping2.png" alt="getPathWithinServletMapping2"></p>
+<p>此时<code>getRequestURI</code>得到的<code>/admin/../manage/page/index</code>和<code>getServletPath</code>获取到的<code>/manage/page/index</code>开头无法匹配，经过<code>getRemainingPath</code>得到的path为<code>null</code>。</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping3.png" alt="getPathWithinServletMapping3"></p>
+<p>经过以上代码处理，最终返回的是<code>servletPath</code>，也就是返回<code>/manage/page/index</code>。</p>
+<p>这里多说一下，通过<code>getReqeustURI</code>和<code>getServletPath</code>进行对比，当两者不同时，尝试<code>getPathInfo</code>。若<code>PathInfo</code>为空，最后返回<code>SerletPath</code>。通过这几个if判断，确保能正确获取请求路径（因为<code>getReqeustURI</code>得到的结果不可信，利用各种URL兼容性难以通过URI判断实际请求路径）。</p>
+<h2 id="lookupHandlerMethod"><a href="#lookupHandlerMethod" class="headerlink" title="lookupHandlerMethod"></a>lookupHandlerMethod</h2><p>得到请求的资源路径之后，回到<code>AbstractHandlerMethodMapping#getHandlerInternal</code>，调用<code>lookupHandlerMethod</code>方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal2.png" alt="getHandlerInternal2"></p>
+<p>看该方法的描述，进行最合适的匹配。</p>
+<blockquote>
+<p>Look up the best-matching handler method for the current request.<br>If multiple matches are found, the best match is selected.</p>
+</blockquote>
+<p><img src="/2020/08/22/Spring_URL2Controller/lookupHandlerMethod.png" alt="lookupHandlerMethod"></p>
+<p>它定义了一个<code>matchs</code>的列表，然后内存变量<code>mappingRegistry</code>根据<code>lookupPath</code>获取所有的匹配对象。</p>
+<p>如果存在这个匹配对象，那么回调用<code>addMatchingMappings</code>方法将匹配的对象映射到<code>matches</code>上。</p>
+<p>如果未匹配到这个<code>lookupPath</code>，那么则会循环<code>mappingRegistry</code>中每个Mapping来匹配该路劲（因为RequestMapping中定义的路劲可以有通配符）。</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/mappingRegistry.png" alt="mappingRegistry"></p>
+<p>至于<code>if(!matches.isEmpty())</code>内的代码，只是看看有没有一个请求映射到多个处理方法，如果存在并且优先级还一样，那么就会报错：Ambiguous handler methods mapped for HTTP path。</p>
+<p>来看<code>addMatchingMappings</code>的代码</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/addMatchingMappings.png" alt="addMatchingMappings"></p>
+<p>注意到<code>AbstractHandlerMethodMapping</code>这个class是个泛型抽象类 <code>getMatchingMapping</code>是个抽象方法，返回值为定义的泛型(T)，我们暂且把这个泛型成为[映射信息]。</p>
+<p>根据方法名称，<code>T getMatchingMapping(T,reqeust)</code>，根据映射信息和请求获取是否匹配，如果匹配则返回映射信息。</p>
+<p><code>RequestMappingInfoHandlerMapping</code>这个class继承了这个抽象类,泛型类型为：<code>RequestMappingInfo</code>。看看它的方法实现</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getMatchingCondition.png" alt="getMatchingCondition"></p>
+<p>如果其中<code>methods</code>、<code>params</code>、<code>headers</code>、<code>consumes</code>、<code>produces</code>、<code>patterns</code>、<code>custom</code>都匹配，那么可以说这个[映射信息]就匹配成功了。如果未匹配成功，则返回404。</p>
+<ol>
+<li><p>methods : 请求方法匹配（POST/GET/DELETE/PUT等等)，对应RequestMapping注解的method</p>
+</li>
+<li><p>params : 请求参数匹配 例如myParam=myValue，对应RequestMapping注解的params</p>
+</li>
+<li><p>headers : 请求头信息(例如：User-Agent: Mozilla/5.0），对应RequestMapping的headers</p>
+</li>
+<li><p>consumes : 提交内容类型(例如:application/json, text/html;)，对应RequestMapping的consumes</p>
+</li>
+<li><p>produces : 返回的内容类型(例如:application/json)，对应RequestMapping的consumes</p>
+</li>
+<li><p>patterns : URL格式(例如:test/testDo)，对应RequestMapping的value</p>
+</li>
+<li><p>自定义条件</p>
+</li>
+</ol>
+<p>根据以上匹配得到的信息，就能找到对应的Controller。</p>
+<p><code>org.springframework.web.servlet.handler.AbstractHandlerMapping#getHandler</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/HandlerExecutionChain.png" alt="HandlerExecutionChain"></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>Spring中获取请求路径的过程，在<code>org.springframework.web.util.UrlPathHelper#getPathWithinServletMapping</code>中，其流程大概如下图所示。</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/diagram.png" alt="diagram"></p>
+<p>其中比较关键的点是<code>getPathWithinApplication</code>方法，其中对RequestURI的处理有：删除冒号及冒号后的内容，URL解码，去除重复斜杠<code>/</code>（注意是先删除冒号，再URL解码）。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://blog.csdn.net/hl233211/article/details/77450697" target="_blank" rel="noopener">https://blog.csdn.net/hl233211/article/details/77450697</a></p>
+]]></content>
+  </entry>
 </search>
