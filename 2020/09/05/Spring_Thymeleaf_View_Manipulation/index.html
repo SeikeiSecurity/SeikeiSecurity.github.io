@@ -29,7 +29,7 @@
 <body>
 <main class="content">
   <section class="outer">
-  <article id="post-Spring_Thymeleaf_View_ Manipulation" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
+  <article id="post-Spring_Thymeleaf_View_Manipulation" class="article article-type-post" itemscope itemprop="blogPost" data-scroll-reveal>
     
     <div class="article-inner">
         
@@ -50,7 +50,7 @@
 
                 
                     <div class="article-meta">
-                        <a href="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/" class="article-date">
+                        <a href="/2020/09/05/Spring_Thymeleaf_View_Manipulation/" class="article-date">
   <time datetime="2020-09-04T16:00:00.000Z" itemprop="datePublished">2020-09-05</time>
 </a>
                             
@@ -92,7 +92,7 @@
 <br>
 
 <p>漏洞复现：</p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/path-request.png" alt="path-request"></p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/path-request.png" alt="path-request"></p>
 <br>
 
 <p>先来看payload: <code>__${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}__::.x</code></p>
@@ -112,7 +112,7 @@
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> String preprocessedInput =</span><br><span class="line">    (preprocess? StandardExpressionPreprocessor.preprocess(context, input) : input);</span><br></pre></td></tr></table></figure>
 
 <p>继续跟进<code>StandardExpressionPreprocessor.preprocess</code>，在<a href="https://github.com/thymeleaf/thymeleaf/blob/thymeleaf-3.0.11.RELEASE/src/main/java/org/thymeleaf/standard/expression/StandardExpressionPreprocessor.java#L80" target="_blank" rel="noopener">StandardExpressionPreprocessor</a>中，使用正则表达式将路径中的表达式提取出来。其中正则规则：<code>\_\_(.*?)\_\_</code>（表示非贪婪匹配两个<code>__</code>之间的内容），匹配得到<code>${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}</code></p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/debug-preprocess.png" alt="debug-preprocess"></p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/debug-preprocess.png" alt="debug-preprocess"></p>
 <p>提取表达式之后就是根据框架进行对应的表达式解析，这里是Spring所以用的就是SpringEL表达式解析。</p>
 <br>
 
@@ -126,9 +126,9 @@
 <p>作者给出的payload: <code>__${T(java.lang.Runtime).getRuntime().exec(&quot;touch executed&quot;)}__::.x</code></p>
 <p>和之前的payload相比，少了<code>java.util.Scanner</code>，直接进行命令执行，无回显。</p>
 <p>我在这里试了一下回显的payload，发现报错中没有<code>id</code>的执行结果</p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/doc-request.png" alt="doc-request"></p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/doc-request.png" alt="doc-request"></p>
 <p>动态调试分析，原因是Spring分配URI时会自动抹去后缀名，导致缺少了<code>.x</code>，无法正常回显。再加一个<code>.x</code>就能正常回显。若一个<code>.x</code>都不加，payload会被截成<code>__${T(java.lang.Runtime).getRuntime()</code>，导致命令执行失败。</p>
-<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/doc-request2.png" alt="doc-request2"></p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_Manipulation/doc-request2.png" alt="doc-request2"></p>
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个漏洞原理很简单，就是Thymeleaf的视图参数可进行表达式解析，若用户输入可控制视图参数，就会导致SpEL注入漏洞产生。</p>
 <p>漏洞细节点是payload的构造，需要添加<code>__</code>和<code>::</code>引导表达式解析。</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://github.com/veracode-research/spring-view-manipulation" target="_blank" rel="noopener">https://github.com/veracode-research/spring-view-manipulation</a></p>
@@ -137,7 +137,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/" data-id="ckevd982n000ivwgbehrq2ar1" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/09/05/Spring_Thymeleaf_View_Manipulation/" data-id="ckevda3ll000iy2gbbola970x" class="article-share-link">
                                             分享
                                         </a> -->
                                         
