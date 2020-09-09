@@ -147,11 +147,12 @@
 <p>不是的，还可以考虑该命令是否存在参数注入的问题。若第一个字段是执行bash命令，也可以尝试base64等编码形式同时执行多条语句。</p>
 <h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><p>由于Java的安全设计，已经尽可能规避了命令执行的风险。执行命令时仅仅将命令数组中第一个元素作为操作系统的进程去执行，其后全部元素都是该进程的参数。</p>
 <p>若是使用数组形式传递命令，数组中单个元素只作为单一参数去执行，不会因为空格等字符就分开执行。</p>
+<p>若是<code>/bin/bash</code>形式的命令执行，仍可以用<code>bash -c {echo,base64的payload}|{base64,-d}|{bash,-i}</code>执行多条命令。</p>
 
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/07/18/Java-Runtime.getRuntime.exec/" data-id="cke5cjsf20006t1jghx8lfaj9" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/07/18/Java-Runtime.getRuntime.exec/" data-id="ckevd058n0006shgb6rve4vvg" class="article-share-link">
                                             分享
                                         </a> -->
                                         
