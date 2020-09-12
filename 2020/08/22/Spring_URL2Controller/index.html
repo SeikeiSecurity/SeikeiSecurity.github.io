@@ -74,7 +74,7 @@
                                             
 
                                                 
-                                                                    <p>我把Spring请求URL找到相应Controller的过程调试了一遍，在此记录该过程，属于个人记录，其中很可能存在某些不细致甚至错误的地方，还请见谅。</p>
+                                                                    <p>我把Spring请求URL找到相应Controller的过程调试了一遍，在此记录该过程，属于个人记录，过程中存在不细致甚至错误的地方，还请见谅。</p>
 <p>代码版本为<code>spring-webmvc-5.2.5.RELEASE-sources.jar</code></p>
 <a id="more"></a>
 
@@ -82,7 +82,7 @@
 <p><img src="/2020/08/22/Spring_URL2Controller/doDispatch.png" alt="doDispatch"></p>
 <p>跟进<code>getHandler</code></p>
 <p><img src="/2020/08/22/Spring_URL2Controller/getHandler.png" alt="getHandler"></p>
-<p>再跟进<code>mapping.getHandler</code>，它是一个<code>interface</code>，此处由<code>AbstractHandlerMapping</code>实现该方法</p>
+<p>再跟进<code>mapping.getHandler</code>，它是一个<code>interface</code>，由<code>AbstractHandlerMapping</code>实现此接口</p>
 <p><img src="/2020/08/22/Spring_URL2Controller/mapping.handler.png" alt="mapping.handler"></p>
 <p>点击148行右侧的绿色图标，跳转到<code>AbstractHandlerMapping#getHandler</code></p>
 <p><img src="/2020/08/22/Spring_URL2Controller/AbstractHandlerMapping.getHandler.png" alt="AbstractHandlerMapping.getHandler"></p>
@@ -103,7 +103,7 @@
 <p>(1) 移除两个<code>/</code>间，分号和分号后的内容，得到<code>/shiro/admin////../manage/page/index</code></p>
 <p>（例如传入<code>/admin;random/page;jsessionid=1111</code>，会得到<code>/admin/page/</code>）</p>
 <p><img src="/2020/08/22/Spring_URL2Controller/removeSemicolonContent.png" alt="removeSemicolonContent"></p>
-<p>(2) URL解码（URL解码没什么好说的）</p>
+<p>(2) URL解码</p>
 <p>(3) 移除多余的<code>/</code></p>
 <p><img src="/2020/08/22/Spring_URL2Controller/getSanitizedPath.png" alt="getSanitizedPath"></p>
 <p>经过以上处理，最终得到的uri是<code>/shiro/admin/../manage/page/index</code></p>
@@ -120,7 +120,7 @@
 <p>这里多说一下，通过<code>getReqeustURI</code>和<code>getServletPath</code>进行对比，当两者不同时，尝试<code>getPathInfo</code>。若<code>PathInfo</code>为空，最后返回<code>SerletPath</code>。通过这几个if判断，确保能正确获取请求路径（因为<code>getReqeustURI</code>得到的结果不可信，利用各种URL兼容性难以通过URI判断实际请求路径）。</p>
 <h2 id="lookupHandlerMethod"><a href="#lookupHandlerMethod" class="headerlink" title="lookupHandlerMethod"></a>lookupHandlerMethod</h2><p>得到请求的资源路径之后，回到<code>AbstractHandlerMethodMapping#getHandlerInternal</code>，调用<code>lookupHandlerMethod</code>方法</p>
 <p><img src="/2020/08/22/Spring_URL2Controller/getHandlerInternal2.png" alt="getHandlerInternal2"></p>
-<p>看该方法的描述，进行最合适的匹配。</p>
+<p>看该方法的描述，将资源路径进行最合适的匹配，得到最合适的Controller方法。</p>
 <blockquote>
 <p>Look up the best-matching handler method for the current request.<br>If multiple matches are found, the best match is selected.</p>
 </blockquote>
@@ -132,7 +132,7 @@
 <p>至于<code>if(!matches.isEmpty())</code>内的代码，只是看看有没有一个请求映射到多个处理方法，如果存在并且优先级还一样，那么就会报错：Ambiguous handler methods mapped for HTTP path。</p>
 <p>来看<code>addMatchingMappings</code>的代码</p>
 <p><img src="/2020/08/22/Spring_URL2Controller/addMatchingMappings.png" alt="addMatchingMappings"></p>
-<p>注意到<code>AbstractHandlerMethodMapping</code>这个class是个泛型抽象类 <code>getMatchingMapping</code>是个抽象方法，返回值为定义的泛型(T)，我们暂且把这个泛型成为[映射信息]。</p>
+<p>注意到<code>AbstractHandlerMethodMapping</code>这个class是个泛型抽象类 <code>getMatchingMapping</code>是个抽象方法，返回值为定义的泛型(T)，我们暂且把这个泛型理解成[映射信息]。</p>
 <p>根据方法名称，<code>T getMatchingMapping(T,reqeust)</code>，根据映射信息和请求获取是否匹配，如果匹配则返回映射信息。</p>
 <p><code>RequestMappingInfoHandlerMapping</code>这个class继承了这个抽象类,泛型类型为：<code>RequestMappingInfo</code>。看看它的方法实现</p>
 <p><img src="/2020/08/22/Spring_URL2Controller/getMatchingCondition.png" alt="getMatchingCondition"></p>
@@ -164,7 +164,7 @@
                                                                         
                                     </div>
                                     <footer class="article-footer">
-                                        <!--<a data-url="http://s31k31.github.io/2020/08/22/Spring_URL2Controller/" data-id="ckevda3ln000jy2gbbskl3w5x" class="article-share-link">
+                                        <!--<a data-url="http://s31k31.github.io/2020/08/22/Spring_URL2Controller/" data-id="ckezdguy5000hswjc48py8ofv" class="article-share-link">
                                             分享
                                         </a> -->
                                         

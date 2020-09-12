@@ -1129,7 +1129,8 @@ img {
 }
 .list-inline {
   position: relative;
-  margin: 0 -0.75rem;
+  margin: auto;
+  text-align: center;
 }
 .list-inline > li {
   display: inline-block;
